@@ -11,6 +11,14 @@ const VIEW = { xMin: 30, xMax: 330, yMin: 10, yMax: 170 };
 function weightIdeal(t: number) { return 75 + 11.3 * Math.exp(-Math.pow(t / 22, 1.4)); }
 function weightProjected(t: number) { return 75 + 11.3 * Math.exp(-Math.pow(t / 19, 1.4)); }
 
+function deltaPhrase(delta: number, tolerance: number): string {
+  // Negative delta = lighter than ideal = ahead of plan.
+  const a = Math.abs(delta).toFixed(1).replace(".", ",");
+  if (Math.abs(delta) <= tolerance / 2) return "sur la trajectoire idéale";
+  if (delta < 0) return `${a} kg en avance sur la cible`;
+  return `${a} kg vs cible idéale`;
+}
+
 export function Hero({ hero }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const svgRef  = useRef<SVGSVGElement>(null);
@@ -140,7 +148,7 @@ export function Hero({ hero }: Props) {
       <div className="hero-head">
         <span className="label" id="hero-title">Poids</span>
         <p className={"status" + (hero.status !== "conforme" ? " deviation" : "")}>{hero.statusLabel}</p>
-        <p className="delta">{fmtDelta(hero.delta_kg)} vs idéale</p>
+        <p className="delta">{deltaPhrase(hero.delta_kg, hero.tolerance_kg)}</p>
         <p className="figure">{fmtKg(hero.current_kg)}</p>
       </div>
 
