@@ -371,13 +371,36 @@ def _bar_spark(values: list[float], color: str) -> dict:
     return {"kind": "bars", "color": color, "values": bars}
 
 
-def build_bio_age(measurements: list[dict]) -> dict:
-    """Without blood labs we keep the bio age simple: chrono, no big claims."""
+def build_bio_age(measurements: list[dict], activity: list[dict] | None = None) -> dict:
+    """Bio age composite from what we can actually measure. Blood is held at
+    chrono since labs are not ingested yet. Each subage rounds to nearest yr."""
     chrono = 35
+    # Cardio: prefer VO2max if present, else derive from rolling 7d HR repos
+    # via Tanaka-style mapping (≈50 bpm = trained young, 60 = average adult,
+    # 70 = deconditioned). Linear interp; clamped to 20-50.
     vo2 = next((m for m in measurements if m["type_code"] == 123), None)
-    cardio_age = max(20, chrono - int(round((float(vo2["value"]) - 45) / 2))) if vo2 else chrono
+    if vo2:
+        cardio_age = max(20, chrono - int(round((float(vo2["value"]) - 45) / 2)))
+    elif activity:
+        hr_min_recent = sorted(
+            [(a["date"], int(a["raw"]["hr_min"]))
+             for a in activity
+             if a.get("raw") and isinstance(a["raw"], dict) and a["raw"].get("hr_min")
+             and int(a["raw"]["hr_min"]) > 30],
+            key=lambda x: x[0],
+        )[-7:]
+        if hr_min_recent:
+            avg_hr = sum(v for _, v in hr_min_recent) / len(hr_min_recent)
+            cardio_age = max(20, min(60, int(round(25 + (avg_hr - 50) * 1.0))))
+        else:
+            cardio_age = chrono
+    else:
+        cardio_age = chrono
+
     fat_ratio = next((m for m in measurements if m["type_code"] == 6 and (m.get("position") in (None, 0, 7))), None)
     composition_age = chrono + int(round((float(fat_ratio["value"]) - 16) / 2)) if fat_ratio else chrono
+    # Skeleton: bone_mass is too noisy as-is without T-score; keep chrono until
+    # we ingest a DEXA report.
     composite = round((cardio_age + chrono + composition_age + chrono) / 4)
     return {
         "composite": composite,
@@ -946,7 +969,7 @@ def main() -> None:
         "hero": build_hero(measurements, today),
         "wegovy": build_wegovy(today),
         "signals": build_signals(yazio, measurements, activity, hc_records, today),
-        "bio_age": build_bio_age(measurements),
+        "bio_age": build_bio_age(measurements, activity),
         "pillars": build_pillars(yazio, measurements, activity, hc_records, today),
         "pillar_detail": pillar_detail,
     }
