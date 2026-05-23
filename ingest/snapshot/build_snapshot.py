@@ -230,7 +230,7 @@ def build_wegovy(today: date) -> dict:
     }
 
 
-def build_signals(yazio: list[dict], measurements: list[dict], activity: list[dict], today: date) -> list[dict]:
+def build_signals(yazio: list[dict], measurements: list[dict], activity: list[dict], hc_records: list[dict], today: date) -> list[dict]:
     """5 cross-source signals. Returns only those with usable data."""
     out: list[dict] = []
 
@@ -292,6 +292,26 @@ def build_signals(yazio: list[dict], measurements: list[dict], activity: list[di
                 "status_label": "sur trajectoire" if abs(z) < 1 else "rapide",
                 "spark": _line_spark([START_KG - float(p["kg"]) for p in real_weight_points(measurements, start, today)], "sage", end_dot=True),
             })
+
+    # --- Sleep × HRV: needs hc_raw_record (Health Connect via Android app) ---
+    hrv = _avg_hrv_from_hc(hc_records, today)
+    sleep_pts = _sleep_minutes_per_day(hc_records, today, 14)
+    if hrv and len(sleep_pts) >= 5:
+        avg_min = sum(v for _, v in sleep_pts[-7:]) / max(1, len(sleep_pts[-7:]))
+        deficit = (420 - avg_min) * 7 / 60  # hours under target across the week
+        avg_hrv, hrv_series = hrv
+        # crude z vs personal mean (will be sharper once 28d baseline exists)
+        watch = avg_min < 380 or avg_hrv < 50
+        out.append({
+            "id": "sleep_hrv",
+            "title": "Dette sommeil × HRV",
+            "sub": f"sommeil 7j moy {int(avg_min)} min · HRV {int(avg_hrv)} ms",
+            "value": f"{'+' if deficit < 0 else '−'}{abs(int(deficit))} h",
+            "unit": "/ 7 j",
+            "status": "watch" if watch else "ok",
+            "status_label": "à surveiller" if watch else "conforme",
+            "spark": _line_spark(hrv_series, "ambre" if watch else "sage"),
+        })
 
     # --- Steps / activity ---
     recent_act = [a for a in activity if a.get("steps") and date.fromisoformat(a["date"]) >= today - timedelta(days=28)]
@@ -374,7 +394,46 @@ def _composite_history(measurements: list[dict], chrono: int) -> list[dict]:
     return out
 
 
-def build_pillars(yazio: list[dict], measurements: list[dict], activity: list[dict], today: date) -> list[dict]:
+def _avg_hr_from_hc(hc_records: list[dict], today: date) -> float | None:
+    """Average resting HR over last 30 days from hc_raw_record."""
+    recent = [
+        float(r["value_num"]) for r in hc_records
+        if r["record_type"] == "resting_heart_rate" and r.get("value_num") is not None
+        and date.fromisoformat(r["start_ts"][:10]) >= today - timedelta(days=30)
+    ]
+    return sum(recent) / len(recent) if recent else None
+
+
+def _avg_hrv_from_hc(hc_records: list[dict], today: date) -> tuple[float, list[float]] | None:
+    """(avg RMSSD last 14d, daily values for sparkline) — None if no data."""
+    recent = sorted(
+        [r for r in hc_records
+         if r["record_type"] == "hrv_rmssd" and r.get("value_num") is not None
+         and date.fromisoformat(r["start_ts"][:10]) >= today - timedelta(days=14)],
+        key=lambda r: r["start_ts"],
+    )
+    if not recent:
+        return None
+    vals = [float(r["value_num"]) for r in recent]
+    return sum(vals) / len(vals), vals[-14:]
+
+
+def _sleep_minutes_per_day(hc_records: list[dict], today: date, days: int) -> list[tuple[date, float]]:
+    """Per-day total sleep minutes from sleep_session records."""
+    by_day: dict[date, float] = {}
+    for r in hc_records:
+        if r["record_type"] != "sleep_session" or r.get("value_num") is None:
+            continue
+        # Use end_ts as the "wake day" anchor
+        d_str = (r.get("end_ts") or r["start_ts"])[:10]
+        d = date.fromisoformat(d_str)
+        if d < today - timedelta(days=days) or d > today:
+            continue
+        by_day[d] = by_day.get(d, 0) + float(r["value_num"])
+    return sorted(by_day.items())
+
+
+def build_pillars(yazio: list[dict], measurements: list[dict], activity: list[dict], hc_records: list[dict], today: date) -> list[dict]:
     pillars = []
 
     # Composition: BF% latest + 12 mois trajectoire
@@ -434,6 +493,30 @@ def build_pillars(yazio: list[dict], measurements: list[dict], activity: list[di
                     "ambre_indices": ambre,
                 },
             })
+
+    # Recovery: sleep duration last 7 nights from hc_raw_record
+    sleep_pts = _sleep_minutes_per_day(hc_records, today, 7)
+    if sleep_pts:
+        last7 = sleep_pts[-7:]
+        avg_min = sum(v for _, v in last7) / len(last7)
+        bars = [max(2, min(72, round(v / 9))) for _, v in last7]  # 9 min ~ 1px (target 420 → 47px)
+        # ambre if under 6h (360 min)
+        ambre = [i for i, (_, v) in enumerate(last7) if v < 360]
+        h = int(avg_min // 60)
+        m = int(avg_min - h * 60)
+        pillars.append({
+            "key": "recovery",
+            "label": "Récupération",
+            "meta": "7 j",
+            "figure": f"{h} h {m:02d}",
+            "unit": "moy.",
+            "chart": {
+                "kind": "bars",
+                "values": bars,
+                "target_band": {"y": 14, "h": 14},
+                "ambre_indices": ambre,
+            },
+        })
 
     # Cardio: VO2max if present
     vo2_series = sorted([m for m in measurements if m["type_code"] == 123], key=lambda m: m["ts"])
@@ -498,15 +581,19 @@ def main() -> None:
         "select": "date,kcal,protein_g,carb_g,fat_g,steps,weight_kg",
         "order": "date.desc",
     })
-    print(f"  loaded: {len(measurements)} withings rows, {len(activity)} activity days, {len(yazio)} yazio days", file=sys.stderr)
+    hc_records = sb_get("hc_raw_record", {
+        "select": "record_type,start_ts,end_ts,value_num,unit,source_app",
+        "order": "start_ts.desc",
+    })
+    print(f"  loaded: {len(measurements)} withings rows, {len(activity)} activity days, {len(yazio)} yazio days, {len(hc_records)} HC records", file=sys.stderr)
 
     payload: dict[str, Any] = {
         "today": today.isoformat(),
         "hero": build_hero(measurements, today),
         "wegovy": build_wegovy(today),
-        "signals": build_signals(yazio, measurements, activity, today),
+        "signals": build_signals(yazio, measurements, activity, hc_records, today),
         "bio_age": build_bio_age(measurements),
-        "pillars": build_pillars(yazio, measurements, activity, today),
+        "pillars": build_pillars(yazio, measurements, activity, hc_records, today),
     }
 
     sb_upsert(
