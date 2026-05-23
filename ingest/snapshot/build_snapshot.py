@@ -682,6 +682,91 @@ def build_pillar_detail_composition(measurements: list[dict], today: date) -> di
     }
 
 
+def build_pillar_detail_cardio(activity: list[dict], today: date) -> dict | None:
+    """HR repos derived from Withings activity.raw.hr_min (Huawei via HC)."""
+    series = sorted(
+        [(a["date"], int(a["raw"]["hr_min"]))
+         for a in activity
+         if a.get("raw") and isinstance(a["raw"], dict) and a["raw"].get("hr_min")
+         and int(a["raw"]["hr_min"]) > 30],
+        key=lambda x: x[0],
+    )
+    if len(series) < 5:
+        return None
+    last90 = series[-90:]
+    last7 = last90[-7:]
+    avg7 = int(round(sum(v for _, v in last7) / len(last7)))
+    # 90 days trajectory
+    pts = [{"date": fmt_date_fr(date.fromisoformat(d)), "value": v} for d, v in last90]
+    avg_first7 = sum(v for _, v in last90[:7]) / max(1, min(7, len(last90)))
+    delta = avg7 - avg_first7
+    rows = [{"date": fmt_date_fr(date.fromisoformat(d)), "value": v, "unit": "bpm",
+             "off": v > 70} for d, v in series[-7:][::-1]]
+    return {
+        "key": "cardio",
+        "title": "Cardio · HR repos",
+        "meta": "Huawei Watch GT2 (HR min nocturne) via Health Connect → Withings",
+        "hero": {
+            "figure": str(avg7),
+            "unit": "bpm (moy. 7 j)",
+            "delta_label": f"{'+' if delta >= 0 else '−'}{abs(round(delta))} vs début de fenêtre",
+            "status_label": "Conforme" if avg7 <= 60 else "Dérive mineure" if avg7 <= 70 else "Dérive notable",
+            "status_off": avg7 > 60,
+        },
+        "trajectory": {
+            "x_label": "90 j",
+            "y_unit": "bpm",
+            "y_min": min(v for _, v in last90) - 3,
+            "y_max": max(v for _, v in last90) + 3,
+            "points": pts,
+            "target": {"value": 50, "label": "cible 50 bpm"},
+        },
+        "table": rows,
+        "method": [
+            {"heading": "Source", "body": "HR min quotidien capté pendant le sommeil par la Huawei Watch GT2, exposé via Health Connect puis agrégé par Withings dans son endpoint activity. Approximation valide du HR repos (Plews & Laursen 2017)."},
+            {"heading": "Cible 50 bpm", "body": "Plage 50-60 bpm: endurance entrainée. <50: athlétique. >70 sur 7 j: signal de surentrainement, fatigue, ou perte de condition à investiguer."},
+            {"heading": "Limite", "body": "Pas de VO2max direct (pas de ScanWatch). HR repos est un proxy correct mais inférieur à un VO2max mesuré pour suivre les progrès cardio fins."},
+        ],
+    }
+
+
+def build_pillar_detail_recovery(hc_records: list[dict], today: date) -> dict | None:
+    """Sleep + HRV from Health Connect. Returns None until APK ingest starts."""
+    sleep_pts = _sleep_minutes_per_day(hc_records, today, 30)
+    if not sleep_pts:
+        return None
+    last7 = sleep_pts[-7:]
+    avg_min = sum(v for _, v in last7) / len(last7)
+    h, m = int(avg_min // 60), int(avg_min - (avg_min // 60) * 60)
+    pts = [{"date": fmt_date_fr(d), "value": int(v)} for d, v in sleep_pts]
+    rows = [{"date": fmt_date_fr(d), "value": f"{int(v // 60)} h {int(v - (v // 60) * 60):02d}", "unit": "", "off": v < 360} for d, v in sleep_pts[-7:][::-1]]
+    return {
+        "key": "recovery",
+        "title": "Récupération",
+        "meta": "Huawei Watch GT2 · sommeil via Health Connect",
+        "hero": {
+            "figure": f"{h} h {m:02d}",
+            "unit": "moyenne 7 j",
+            "status_label": "Conforme" if avg_min >= 420 else "Dérive mineure" if avg_min >= 360 else "Dérive notable",
+            "status_off": avg_min < 420,
+        },
+        "trajectory": {
+            "x_label": "30 j",
+            "y_unit": "min",
+            "y_min": 240,
+            "y_max": 540,
+            "points": pts,
+            "target": {"value": 420, "label": "cible 7 h"},
+            "tolerance": 30,
+        },
+        "table": rows,
+        "method": [
+            {"heading": "Source", "body": "Huawei Watch GT2 (TruSleep PPG + accéléromètre). Stades sommeil détectés: éveil, léger, profond, REM. Précision ±25 min vs polysomnographie (Chinoy 2021)."},
+            {"heading": "Cible 7-8 h", "body": "Consensus NSF 2015 + AASM 2015 pour adultes 26-64 ans. <6 h sur 7 nuits: cortisol matinal élevé, sensibilité insuline diminuée (Van Dongen 2003)."},
+        ],
+    }
+
+
 def build_pillar_detail_activity(activity: list[dict], today: date) -> dict | None:
     sorted_act = sorted([a for a in activity if a.get("steps")], key=lambda a: a["date"])
     if not sorted_act:
@@ -770,6 +855,12 @@ def main() -> None:
     act_detail = build_pillar_detail_activity(activity, today)
     if act_detail:
         pillar_detail["activity"] = act_detail
+    cardio_detail = build_pillar_detail_cardio(activity, today)
+    if cardio_detail:
+        pillar_detail["cardio"] = cardio_detail
+    recovery_detail = build_pillar_detail_recovery(hc_records, today)
+    if recovery_detail:
+        pillar_detail["recovery"] = recovery_detail
 
     payload: dict[str, Any] = {
         "today": today.isoformat(),
