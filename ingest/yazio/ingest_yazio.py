@@ -3,9 +3,16 @@ Daily Yazio → Supabase ingest.
 
 Orchestrates the yazio-exporter CLI (login + days + weight + nutrients) over
 a rolling window, then upserts into:
-- yazio_day                    (one row per date)
-- yazio_meal                   (one row per date × meal)
+- yazio_day                    (one row per date — kcal/macros totals)
+- yazio_meal                   (one row per date × meal — kept for future
+                                meal-pattern analysis even though the
+                                cockpit reads day totals only)
 - yazio_micronutrient_daily    (one row per date × nutrient)
+
+Per-meal aggregation in Yazio is noisy (items can land in the wrong slot
+when logged outside their canonical time window), so the day total is the
+authoritative signal for the cockpit; meal rows are stored for downstream
+processing.
 
 Idempotent on the natural keys. Designed for the GitHub Actions daily cron;
 runs equally well locally if the env vars are set.
@@ -135,9 +142,6 @@ def parse_days(out_dir: Path, weight_by_date: dict[str, float]) -> tuple[list[di
         summary = day.get("daily_summary") or {}
         meal_map = summary.get("meals") or {}
         water = day.get("water") or {}
-        # Persist the full day payload (consumed/goals/exercises/water/daily_summary)
-        # so we can re-derive meal classification or surface item-level views later
-        # without re-fetching.
         days.append(
             {
                 "date": iso_date,
