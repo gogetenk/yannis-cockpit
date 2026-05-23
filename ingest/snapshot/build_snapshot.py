@@ -512,8 +512,24 @@ def build_pillars(yazio: list[dict], measurements: list[dict], activity: list[di
                 },
             })
 
-    # Recovery: sleep duration last 7 nights from hc_raw_record
+    # Recovery: sleep duration last 7 nights from hc_raw_record.
+    # If empty (APK not installed yet), still render a placeholder tile so
+    # the cockpit's 4-pillar layout stays balanced.
     sleep_pts = _sleep_minutes_per_day(hc_records, today, 7)
+    if not sleep_pts:
+        pillars.append({
+            "key": "recovery",
+            "label": "Récupération",
+            "meta": "APK requise",
+            "figure": "—",
+            "unit": "installer Cockpit Sync",
+            "chart": {
+                "kind": "bars",
+                "values": [8, 12, 6, 14, 10, 8, 6],
+                "target_band": {"y": 14, "h": 14},
+                "ambre_indices": [0, 1, 2, 3, 4, 5, 6],
+            },
+        })
     if sleep_pts:
         last7 = sleep_pts[-7:]
         avg_min = sum(v for _, v in last7) / len(last7)
@@ -752,10 +768,33 @@ def build_pillar_detail_cardio(activity: list[dict], today: date) -> dict | None
 
 
 def build_pillar_detail_recovery(hc_records: list[dict], today: date) -> dict | None:
-    """Sleep + HRV from Health Connect. Returns None until APK ingest starts."""
+    """Sleep + HRV from Health Connect. Returns placeholder until APK installed."""
     sleep_pts = _sleep_minutes_per_day(hc_records, today, 30)
     if not sleep_pts:
-        return None
+        return {
+            "key": "recovery",
+            "title": "Récupération",
+            "meta": "En attente de la companion app Android",
+            "hero": {
+                "figure": "—",
+                "unit": "données indisponibles",
+                "status_label": "Cockpit Sync à installer",
+                "status_off": True,
+            },
+            "trajectory": {
+                "x_label": "30 j",
+                "y_unit": "min",
+                "y_min": 240,
+                "y_max": 540,
+                "points": [],
+                "target": {"value": 420, "label": "cible 7 h"},
+            },
+            "table": [],
+            "method": [
+                {"heading": "Pourquoi vide", "body": "Withings n'expose pas le sommeil détaillé Huawei via son API. Pour lire les nuits, la HRV et la HR continue, télécharge l'APK Cockpit Sync depuis GitHub Actions (workflow Build Android APK → cockpit-sync-debug-apk) et accorde les permissions Health Connect au premier lancement."},
+                {"heading": "Ce qui apparaîtra ensuite", "body": "Durée par nuit (stades détectés par TruSleep), HRV nocturne (RMSSD), HR repos vraie (non plus dérivée de hr_min activity), latence d'endormissement si dispo, score sommeil composite."},
+            ],
+        }
     last7 = sleep_pts[-7:]
     avg_min = sum(v for _, v in last7) / len(last7)
     h, m = int(avg_min // 60), int(avg_min - (avg_min // 60) * 60)
