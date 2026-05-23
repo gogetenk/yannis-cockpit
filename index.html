@@ -575,22 +575,110 @@
       margin-top: 4px;
     }
 
-    /* Composite age tile-wide */
+    /* Composite age tile-wide — honest framing: 4 sub-ages visible */
     .tile--wide .ages {
       display: flex;
       align-items: baseline;
-      gap: 14px;
+      gap: 16px;
+      flex-wrap: wrap;
     }
     .tile--wide .ages .real {
       font-family: var(--font-display);
-      font-size: 40px;
+      font-size: 48px;
       font-weight: 300;
       letter-spacing: -0.02em;
       line-height: 1;
       color: var(--deep-sage);
       font-variant-numeric: tabular-nums;
     }
-    .tile--wide .ages .real .unit {
+    .tile--wide .ages .real.ambre { color: var(--ambre-brule); }
+    .tile--wide .ages .ambre { color: var(--ambre-brule); }
+    .tile--wide .ages-meta {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .tile--wide .ages-meta .ci {
+      font-family: var(--font-display);
+      font-size: 14px;
+      color: var(--sage-ash);
+      font-variant-numeric: tabular-nums;
+    }
+    .tile--wide .ages-meta .vs {
+      font-size: 12px;
+      color: var(--sage-ash);
+      font-variant-numeric: tabular-nums;
+    }
+    .tile--wide .ages-meta .vs strong {
+      font-weight: 500;
+      color: var(--sage-ink);
+    }
+
+    /* Sub-ages — 4 bars, height ∝ age, label below, weight micro-label */
+    .subages {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 12px;
+      margin-top: 14px;
+    }
+    .subage {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+    }
+    .subage-bar {
+      position: relative;
+      width: 100%;
+      max-width: 56px;
+      height: 72px;
+      background: var(--sage-mist);
+      border-radius: 6px;
+      overflow: visible;
+    }
+    .subage-fill {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      background: var(--deep-sage);
+      border-radius: 6px;
+      transition: height 240ms cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    .subage-fill.off { background: var(--ambre-brule); }
+    .subage-chrono {
+      position: absolute;
+      left: -3px;
+      right: -3px;
+      top: 50%;   /* chrono 35 ≈ midpoint of 0-70 scale */
+      height: 1px;
+      background: var(--sage-ash);
+      opacity: 0.6;
+    }
+    .subage-val {
+      font-family: var(--font-display);
+      font-size: 17px;
+      font-weight: 400;
+      color: var(--sage-ink);
+      font-variant-numeric: tabular-nums;
+      margin-top: 4px;
+    }
+    .subage-val.off { color: var(--ambre-brule); }
+    .subage-label {
+      font-size: 11px;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: var(--sage-ash);
+    }
+    .subage-w {
+      font-size: 10px;
+      color: var(--sage-ash);
+      font-variant-numeric: tabular-nums;
+      opacity: 0.7;
+    }
+
+    /* legacy ages-bar (kept harmless if any vestige). */
+    .tile--wide .ages .real-legacy .unit {
       font-size: 16px;
       color: var(--sage-ash);
       font-weight: 400;
@@ -1330,23 +1418,66 @@
       </p>
     </article>
 
-    <!-- 5. ÂGE BIOLOGIQUE (wide)  -->
+    <!-- 5. ÂGE BIOLOGIQUE (wide) — composite of 4 sub-ages with explicit drivers.
+         Algorithm: see ALGO_BIO_AGE.md. Weights PhenoAge 0.34, FitAge 0.28,
+         Body 0.20, Bone 0.17.  Bone drives the +7 ans gap. -->
     <article class="tile tile--wide" aria-labelledby="t-age">
       <header class="tile-head">
         <span class="label" id="t-age">Âge biologique</span>
-        <span class="meta">composite · 8 marqueurs</span>
+        <span class="meta">composite · 4 sous-âges · IC 95 %</span>
       </header>
 
       <div class="ages">
-        <span class="real">33<span class="unit"> ans</span></span>
-        <div class="ages-bar" aria-hidden="true">
-          <span class="real-mark"  style="left: 33%"></span>
-          <span class="chrono-mark" style="left: 41%"></span>
+        <span class="real ambre">42<span class="unit"> ans</span></span>
+        <div class="ages-meta">
+          <span class="ci">[39 – 45]</span>
+          <span class="vs">vs chrono <strong>35</strong> · <strong class="ambre">+7 ans</strong></span>
         </div>
-        <span class="vs">vs chrono <strong>35</strong> &nbsp;·&nbsp; <strong>−2&nbsp;ans</strong></span>
       </div>
-      <p class="tile-foot" style="margin-top:8px">
-        <span>VO₂ · HbA1c · ApoB · CRP · HR repos · ALMI · HRV · T-score</span>
+
+      <!-- Sub-ages bar chart: each bar = one sub-age, height ∝ age, width ∝ weight -->
+      <div class="subages" aria-label="4 sous-âges biologiques">
+        <div class="subage">
+          <div class="subage-bar">
+            <span class="subage-fill" style="height: 41%"></span>
+            <span class="subage-chrono" title="âge chrono 35"></span>
+          </div>
+          <span class="subage-val">28</span>
+          <span class="subage-label">Cardio</span>
+          <span class="subage-w">0,28</span>
+        </div>
+        <div class="subage">
+          <div class="subage-bar">
+            <span class="subage-fill" style="height: 50%"></span>
+            <span class="subage-chrono"></span>
+          </div>
+          <span class="subage-val">34</span>
+          <span class="subage-label">Sang</span>
+          <span class="subage-w">0,34</span>
+        </div>
+        <div class="subage">
+          <div class="subage-bar">
+            <span class="subage-fill off" style="height: 62%"></span>
+            <span class="subage-chrono"></span>
+          </div>
+          <span class="subage-val off">42</span>
+          <span class="subage-label">Composition</span>
+          <span class="subage-w">0,20</span>
+        </div>
+        <div class="subage">
+          <div class="subage-bar">
+            <span class="subage-fill off" style="height: 100%"></span>
+            <span class="subage-chrono"></span>
+          </div>
+          <span class="subage-val off">83</span>
+          <span class="subage-label">Squelette</span>
+          <span class="subage-w">0,17</span>
+        </div>
+      </div>
+
+      <p class="tile-foot">
+        <span>driver · ostéopénie L1 (T −2,2)</span>
+        <span>levier · charge axiale + vit D/K2</span>
       </p>
     </article>
 
