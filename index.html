@@ -495,15 +495,42 @@
       width: 100%;
     }
     .tile--wide .subages { margin-top: 4px; }
-    /* Full-width trajectory chart at the bottom of the bio age tile */
+    /* Full-width trajectory chart at the bottom of the bio age tile.
+       Labels live in HTML (figcaption) so they never get stretched horizontally. */
     .age-trajectory {
-      margin-top: 14px;
+      margin: 14px 0 0;
       width: 100%;
     }
-    .age-trajectory svg {
+    .age-trajectory-chart {
+      position: relative;
+      width: 100%;
+    }
+    .age-trajectory-chart svg {
       display: block;
       width: 100%;
-      height: 80px;
+      height: 64px;
+    }
+    .age-trajectory-baseline-label {
+      position: absolute;
+      right: 0;
+      top: 50%;
+      transform: translateY(-100%);
+      font-size: 11px;
+      font-weight: 500;
+      color: var(--sage-ash);
+      font-variant-numeric: tabular-nums;
+      background: var(--warm-cream-rest);
+      padding: 0 4px;
+    }
+    .age-trajectory-axis {
+      display: flex;
+      justify-content: space-between;
+      margin: 6px 0 0;
+      font-size: 11px;
+      font-weight: 500;
+      letter-spacing: 0.04em;
+      color: var(--sage-ash);
+      font-variant-numeric: tabular-nums;
     }
 
     .tile-head {
@@ -1330,26 +1357,28 @@
         </div>
       </div>
 
-      <!-- 12-month composite trajectory: full-width footer chart -->
-      <div class="age-trajectory" aria-label="Évolution âge biologique 12 mois 36 → 33">
-        <svg viewBox="0 0 240 72" preserveAspectRatio="none" role="img">
-          <line x1="0" y1="28" x2="240" y2="28" stroke-width="0.6"
-                stroke-dasharray="3 4" opacity="0.5" style="stroke: var(--sage-ash)"/>
-          <text x="236" y="24" text-anchor="end" font-size="10" font-weight="500"
-                style="fill: var(--sage-ash)" font-variant-numeric="tabular-nums">chrono 35</text>
-          <path d="M 10 14 L 48 18 L 86 28 L 124 32 L 162 36 L 200 39 L 230 42"
-                fill="none" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round"
-                style="stroke: var(--deep-sage)"/>
-          <circle cx="10"  cy="14" r="2.5" opacity="0.45" style="fill: var(--deep-sage)"/>
-          <circle cx="230" cy="42" r="3.4" style="fill: var(--deep-sage)"/>
-          <g font-size="9" font-weight="500" letter-spacing="0.04em"
-             style="fill: var(--sage-ash)">
-            <text x="10"  y="68" text-anchor="start">MAI '25</text>
-            <text x="120" y="68" text-anchor="middle">NOV</text>
-            <text x="230" y="68" text-anchor="end">MAI '26</text>
-          </g>
-        </svg>
-      </div>
+      <!-- 12-month composite trajectory: full-width footer chart.
+           SVG carries the line only; labels are HTML so they never get stretched. -->
+      <figure class="age-trajectory" aria-label="Évolution âge biologique 12 mois: 36 → 33">
+        <div class="age-trajectory-chart">
+          <span class="age-trajectory-baseline-label">chrono 35</span>
+          <svg viewBox="0 0 240 64" preserveAspectRatio="none" role="img">
+            <line x1="0" y1="24" x2="240" y2="24" stroke-width="0.6"
+                  stroke-dasharray="3 4" opacity="0.5" style="stroke: var(--sage-ash)"/>
+            <path d="M 6 10 L 44 14 L 82 24 L 120 28 L 158 32 L 196 35 L 232 38"
+                  fill="none" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round"
+                  vector-effect="non-scaling-stroke"
+                  style="stroke: var(--deep-sage)"/>
+            <circle cx="6"   cy="10" r="2.5" opacity="0.45" style="fill: var(--deep-sage)"/>
+            <circle cx="232" cy="38" r="3.4" style="fill: var(--deep-sage)"/>
+          </svg>
+        </div>
+        <figcaption class="age-trajectory-axis">
+          <span>MAI '25</span>
+          <span>NOV</span>
+          <span>MAI '26</span>
+        </figcaption>
+      </figure>
     </article>
 
     <!-- 4 PILIERS COMPACTS — label + figure + mini sparkline, drill-in for details -->
