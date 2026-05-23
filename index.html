@@ -495,13 +495,15 @@
       width: 100%;
     }
     .tile--wide .subages { margin-top: 4px; }
-    /* Sparkline trajectory 12 mois next to the big age figure */
-    .age-spark {
-      flex: 1;
-      min-width: 160px;
-      max-width: 320px;
-      height: 72px;
+    /* Full-width trajectory chart at the bottom of the bio age tile */
+    .age-trajectory {
+      margin-top: 14px;
+      width: 100%;
+    }
+    .age-trajectory svg {
       display: block;
+      width: 100%;
+      height: 80px;
     }
 
     .tile-head {
@@ -1289,29 +1291,6 @@
 
       <div class="ages">
         <span class="real">33<span class="unit"> ans</span></span>
-        <svg class="age-spark" viewBox="0 0 240 72" preserveAspectRatio="none" role="img"
-             aria-label="Évolution âge biologique 12 mois: 36 → 33">
-          <!-- Chrono 35 baseline at y = 28 -->
-          <line x1="0" y1="28" x2="240" y2="28" stroke-width="0.6"
-                stroke-dasharray="3 4" opacity="0.5" style="stroke: var(--sage-ash)"/>
-          <text x="236" y="24" text-anchor="end" font-size="10" font-weight="500"
-                style="fill: var(--sage-ash)" font-variant-numeric="tabular-nums">chrono 35</text>
-          <!-- Scale: y = 28 + (35 - age) * 7.  age 36 → y 21; 33 → y 42.
-               Series: 36 → 35,5 → 35 → 34,5 → 34 → 33,5 → 33 -->
-          <path d="M 10 14 L 48 18 L 86 28 L 124 32 L 162 36 L 200 39 L 230 42"
-                fill="none" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round"
-                style="stroke: var(--deep-sage)"/>
-          <!-- Start + end markers -->
-          <circle cx="10"  cy="14" r="2.5" opacity="0.45" style="fill: var(--deep-sage)"/>
-          <circle cx="230" cy="42" r="3.4" style="fill: var(--deep-sage)"/>
-          <!-- X labels: 12 mois -->
-          <g font-size="9" font-weight="500" letter-spacing="0.04em"
-             style="fill: var(--sage-ash)">
-            <text x="10"  y="68" text-anchor="start">MAI '25</text>
-            <text x="120" y="68" text-anchor="middle">NOV</text>
-            <text x="230" y="68" text-anchor="end">MAI '26</text>
-          </g>
-        </svg>
         <span class="vs-inline">−2 vs chrono</span>
       </div>
 
@@ -1349,6 +1328,27 @@
           <span class="subage-val">36</span>
           <span class="subage-label">Squelette</span>
         </div>
+      </div>
+
+      <!-- 12-month composite trajectory: full-width footer chart -->
+      <div class="age-trajectory" aria-label="Évolution âge biologique 12 mois 36 → 33">
+        <svg viewBox="0 0 240 72" preserveAspectRatio="none" role="img">
+          <line x1="0" y1="28" x2="240" y2="28" stroke-width="0.6"
+                stroke-dasharray="3 4" opacity="0.5" style="stroke: var(--sage-ash)"/>
+          <text x="236" y="24" text-anchor="end" font-size="10" font-weight="500"
+                style="fill: var(--sage-ash)" font-variant-numeric="tabular-nums">chrono 35</text>
+          <path d="M 10 14 L 48 18 L 86 28 L 124 32 L 162 36 L 200 39 L 230 42"
+                fill="none" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round"
+                style="stroke: var(--deep-sage)"/>
+          <circle cx="10"  cy="14" r="2.5" opacity="0.45" style="fill: var(--deep-sage)"/>
+          <circle cx="230" cy="42" r="3.4" style="fill: var(--deep-sage)"/>
+          <g font-size="9" font-weight="500" letter-spacing="0.04em"
+             style="fill: var(--sage-ash)">
+            <text x="10"  y="68" text-anchor="start">MAI '25</text>
+            <text x="120" y="68" text-anchor="middle">NOV</text>
+            <text x="230" y="68" text-anchor="end">MAI '26</text>
+          </g>
+        </svg>
       </div>
     </article>
 
