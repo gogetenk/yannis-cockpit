@@ -641,9 +641,16 @@ def build_pillar_detail_composition(measurements: list[dict], today: date) -> di
     latest = fat[-1]
     latest_v = float(latest["value"])
     latest_d = date.fromisoformat(latest["ts"][:10])
-    # 12 month trajectory points
-    monthly = _sample_monthly(fat, today, 12)
-    pts = [{"date": MONTHS_FR[date.fromisoformat(r["ts"][:10]).month - 1].upper(), "value": round(float(r["value"]), 1)} for r in monthly]
+    # Trajectory: weekly average over the last 24 months. Body Scan only came
+    # online in Apr 2026, but older Body+ scales also report fat_ratio.
+    weekly = _sample_weekly(fat, today, 104)
+    pts = [
+        {
+            "date": fmt_date_fr(d),
+            "value": round(v, 1),
+        }
+        for d, v in weekly
+    ]
     # vs 6 months ago
     six_m_ago = next((r for r in fat if (today - date.fromisoformat(r["ts"][:10])).days >= 180), None)
     delta = None
@@ -807,6 +814,25 @@ def build_pillar_detail_activity(activity: list[dict], today: date) -> dict | No
             {"heading": "Fenêtre", "body": "30 derniers jours. Moyenne mobile 7 j pour lisser les week-ends."},
         ],
     }
+
+
+def _sample_weekly(rows: list[dict], today: date, weeks: int) -> list[tuple[date, float]]:
+    """One value per ISO week in the window: average of all measurements that week."""
+    cutoff = today - timedelta(weeks=weeks)
+    buckets: dict[tuple[int, int], list[tuple[date, float]]] = {}
+    for r in rows:
+        d = date.fromisoformat(r["ts"][:10])
+        if d < cutoff or d > today:
+            continue
+        y, w, _ = d.isocalendar()
+        buckets.setdefault((y, w), []).append((d, float(r["value"])))
+    out: list[tuple[date, float]] = []
+    for key in sorted(buckets):
+        days = buckets[key]
+        avg = sum(v for _, v in days) / len(days)
+        anchor = max(d for d, _ in days)
+        out.append((anchor, avg))
+    return out
 
 
 def _sample_monthly(rows: list[dict], today: date, months: int) -> list[dict]:
