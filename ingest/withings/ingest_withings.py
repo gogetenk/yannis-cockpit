@@ -174,7 +174,9 @@ def fetch_measures(access_token: str, params: dict) -> Iterable[dict]:
 
 
 def rows_from_group(grp: dict) -> list[dict]:
-    """Flatten one measuregrp into per-measure rows."""
+    """Flatten one measuregrp into per-measure rows. Body Scan returns the
+    same type_code with different `position` values (e.g. 7=global, 2=trunk,
+    1/3/4/5=limbs), so position is part of the natural key."""
     ts_iso = datetime.fromtimestamp(grp["date"], tz=timezone.utc).isoformat()
     out = []
     for m in grp.get("measures", []):
@@ -184,6 +186,7 @@ def rows_from_group(grp: dict) -> list[dict]:
         out.append({
             "ts": ts_iso,
             "type_code": type_code,
+            "position": m.get("position", 0),
             "value": value,
             "unit": unit,
             "device_id": grp.get("deviceid"),
@@ -232,11 +235,11 @@ def main() -> None:
         grp_count += 1
         # Flush in batches so we don't hold everything in RAM on a big backfill.
         if len(all_rows) >= 500:
-            sb_upsert(all_rows, "withings_measurement", "ts,type_code,measure_grp_id")
+            sb_upsert(all_rows, "withings_measurement", "ts,type_code,measure_grp_id,position")
             print(f"  flushed {len(all_rows)} rows ({grp_count} groups)", file=sys.stderr)
             all_rows = []
     if all_rows:
-        sb_upsert(all_rows, "withings_measurement", "ts,type_code,measure_grp_id")
+        sb_upsert(all_rows, "withings_measurement", "ts,type_code,measure_grp_id,position")
     print(f"done. {grp_count} measure groups.", file=sys.stderr)
 
 
