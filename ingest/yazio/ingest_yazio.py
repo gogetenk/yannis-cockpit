@@ -135,6 +135,9 @@ def parse_days(out_dir: Path, weight_by_date: dict[str, float]) -> tuple[list[di
         summary = day.get("daily_summary") or {}
         meal_map = summary.get("meals") or {}
         water = day.get("water") or {}
+        # Persist the full day payload (consumed/goals/exercises/water/daily_summary)
+        # so we can re-derive meal classification or surface item-level views later
+        # without re-fetching.
         days.append(
             {
                 "date": iso_date,
@@ -147,7 +150,7 @@ def parse_days(out_dir: Path, weight_by_date: dict[str, float]) -> tuple[list[di
                 "activity_kcal": summary.get("activity_energy"),
                 "weight_kg": weight_by_date.get(iso_date),
                 "body_fat_pct": None,  # not exposed by `weight` subcommand
-                "source": {"daily_summary": summary, "water": water},
+                "source": day,
             }
         )
         for meal_name in MEAL_KEYS:
