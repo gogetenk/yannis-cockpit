@@ -468,10 +468,14 @@ def build_pillars(yazio: list[dict], measurements: list[dict], activity: list[di
             },
         })
 
-    # Activity: today's steps + 7 days bars
+    # Activity: pick last "complete" day (>=4000 steps) to avoid showing a
+    # partial day still in progress; fall back to most recent if none qualify.
     if activity:
         sorted_act = sorted(activity, key=lambda a: a["date"])
-        latest_steps = next((a for a in reversed(sorted_act) if a.get("steps")), None)
+        latest_steps = (
+            next((a for a in reversed(sorted_act) if a.get("steps") and int(a["steps"]) >= 4000), None)
+            or next((a for a in reversed(sorted_act) if a.get("steps")), None)
+        )
         if latest_steps:
             last7 = sorted_act[-7:]
             vmax = max([int(a.get("steps") or 0) for a in last7] + [10000]) or 10000
@@ -548,6 +552,98 @@ def build_pillars(yazio: list[dict], measurements: list[dict], activity: list[di
     return pillars
 
 
+def build_pillar_detail_composition(measurements: list[dict], today: date) -> dict | None:
+    fat = sorted(
+        [m for m in measurements if m["type_code"] == 6 and (m.get("position") in (None, 0, 7))],
+        key=lambda m: m["ts"],
+    )
+    if not fat:
+        return None
+    latest = fat[-1]
+    latest_v = float(latest["value"])
+    latest_d = date.fromisoformat(latest["ts"][:10])
+    # 12 month trajectory points
+    monthly = _sample_monthly(fat, today, 12)
+    pts = [{"date": MONTHS_FR[date.fromisoformat(r["ts"][:10]).month - 1].upper(), "value": round(float(r["value"]), 1)} for r in monthly]
+    # vs 6 months ago
+    six_m_ago = next((r for r in fat if (today - date.fromisoformat(r["ts"][:10])).days >= 180), None)
+    delta = None
+    if six_m_ago:
+        delta = round(latest_v - float(six_m_ago["value"]), 1)
+    rows: list[dict] = []
+    for m in fat[-8:][::-1]:
+        d = date.fromisoformat(m["ts"][:10])
+        rows.append({"date": fmt_date_fr(d), "value": round(float(m["value"]), 1), "unit": "% MG"})
+    return {
+        "key": "composition",
+        "title": "Composition corporelle",
+        "meta": f"Withings · dernière mesure {fmt_date_fr(latest_d)}",
+        "hero": {
+            "figure": fmt_num(latest_v, 1),
+            "unit": "% MG",
+            "delta_label": (f"{'+' if delta >= 0 else '−'}{abs(delta)} pts vs 6 mois" if delta is not None else None),
+            "status_label": "Conforme" if latest_v <= 18 else "Dérive mineure" if latest_v <= 22 else "Dérive notable",
+            "status_off": latest_v > 18,
+        },
+        "trajectory": {
+            "x_label": "12 mois",
+            "y_unit": "% MG",
+            "y_min": 14,
+            "y_max": 30,
+            "points": pts,
+            "target": {"value": 16, "label": "cible 16 %"},
+        },
+        "table": rows,
+        "method": [
+            {"heading": "Source", "body": "Withings Body Scan (BIA segmentale 8 électrodes, 50 kHz). Mesure auto au lever, à jeun. MG% via algorithme propriétaire calibré hydratation."},
+            {"heading": "Fenêtre", "body": f"Échantillonnage 1 mesure / mois sur 12 mois. Dernière mesure {fmt_date_fr(latest_d)}."},
+            {"heading": "Cible", "body": "16 % long terme (catégorie 'athletic' ACSM cohorte 30-39 ans). Bande conforme jusqu'à 18 %."},
+        ],
+    }
+
+
+def build_pillar_detail_activity(activity: list[dict], today: date) -> dict | None:
+    sorted_act = sorted([a for a in activity if a.get("steps")], key=lambda a: a["date"])
+    if not sorted_act:
+        return None
+    latest = (
+        next((a for a in reversed(sorted_act) if int(a["steps"]) >= 4000), None)
+        or sorted_act[-1]
+    )
+    last30 = sorted_act[-30:]
+    avg = sum(int(a["steps"]) for a in last30) / len(last30)
+    delta_label = f"moyenne {len(last30)} j: {int(avg):,} / 10 000".replace(",", " ")
+    pts = [{"date": fmt_date_fr(date.fromisoformat(a["date"])), "value": int(a["steps"])} for a in last30]
+    rows = [{"date": fmt_date_fr(date.fromisoformat(a["date"])), "value": int(a["steps"]), "unit": "pas",
+             "off": int(a["steps"]) < 7000} for a in sorted_act[-7:][::-1]]
+    return {
+        "key": "activity",
+        "title": "Activité quotidienne",
+        "meta": f"Health Connect → Withings · dernière donnée {fmt_date_fr(date.fromisoformat(latest['date']))}",
+        "hero": {
+            "figure": f"{int(latest['steps']):,}".replace(",", " "),
+            "unit": "pas (dernier jour)",
+            "delta_label": delta_label,
+            "status_label": "Conforme" if avg >= 9000 else "Dérive mineure",
+            "status_off": avg < 9000,
+        },
+        "trajectory": {
+            "x_label": "30 j",
+            "y_unit": "pas/j",
+            "y_min": 0,
+            "y_max": max(15000, int(max(int(a["steps"]) for a in last30) * 1.1)),
+            "points": pts,
+            "target": {"value": 10000, "label": "cible 10 k"},
+        },
+        "table": rows,
+        "method": [
+            {"heading": "Source", "body": "Huawei Watch GT2 (TruSeen 3.0) → Health Sync → Google Health Connect → Withings via cloud sync. Cron ingest 3 h."},
+            {"heading": "Cible 10 000 pas", "body": "Heuristique mainstream (Tudor-Locke 2011). Corrélation mortalité all-cause: plateau 8 000-12 000 pas/j chez adultes <60 ans (Saint-Maurice JAMA 2020)."},
+            {"heading": "Fenêtre", "body": "30 derniers jours. Moyenne mobile 7 j pour lisser les week-ends."},
+        ],
+    }
+
+
 def _sample_monthly(rows: list[dict], today: date, months: int) -> list[dict]:
     """Pick one row per month going back `months`, anchored on today."""
     out = []
@@ -587,6 +683,14 @@ def main() -> None:
     })
     print(f"  loaded: {len(measurements)} withings rows, {len(activity)} activity days, {len(yazio)} yazio days, {len(hc_records)} HC records", file=sys.stderr)
 
+    pillar_detail: dict[str, Any] = {}
+    comp_detail = build_pillar_detail_composition(measurements, today)
+    if comp_detail:
+        pillar_detail["composition"] = comp_detail
+    act_detail = build_pillar_detail_activity(activity, today)
+    if act_detail:
+        pillar_detail["activity"] = act_detail
+
     payload: dict[str, Any] = {
         "today": today.isoformat(),
         "hero": build_hero(measurements, today),
@@ -594,6 +698,7 @@ def main() -> None:
         "signals": build_signals(yazio, measurements, activity, hc_records, today),
         "bio_age": build_bio_age(measurements),
         "pillars": build_pillars(yazio, measurements, activity, hc_records, today),
+        "pillar_detail": pillar_detail,
     }
 
     sb_upsert(
