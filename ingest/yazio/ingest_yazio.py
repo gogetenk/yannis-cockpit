@@ -34,6 +34,15 @@ import requests
 REQUIRED_ENV = ("YAZIO_EMAIL", "YAZIO_PASSWORD", "SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY")
 MEAL_KEYS = ("breakfast", "lunch", "dinner", "snack")
 
+# Yazio namespaces nutrient keys in API responses (e.g. "energy.energy",
+# "nutrient.protein"). Our column-friendly names map onto these.
+NUTRIENT_KEY = {
+    "energy": "energy.energy",
+    "protein": "nutrient.protein",
+    "carb": "nutrient.carb",
+    "fat": "nutrient.fat",
+}
+
 
 def env(name: str) -> str:
     value = os.environ.get(name)
@@ -104,12 +113,13 @@ def upsert(rows: list[dict], table: str, on_conflict: str) -> None:
 
 def _sum_meal_nutrients(meals: dict, key: str) -> float | None:
     """Aggregate one nutrient (energy/protein/carb/fat) across the 4 meals."""
+    api_key = NUTRIENT_KEY[key]
     total = 0.0
     found = False
     for meal_name in MEAL_KEYS:
         nutrients = ((meals or {}).get(meal_name) or {}).get("nutrients") or {}
-        if key in nutrients and nutrients[key] is not None:
-            total += float(nutrients[key])
+        if api_key in nutrients and nutrients[api_key] is not None:
+            total += float(nutrients[api_key])
             found = True
     return total if found else None
 
@@ -147,10 +157,10 @@ def parse_days(out_dir: Path, weight_by_date: dict[str, float]) -> tuple[list[di
             meals.append({
                 "date": iso_date,
                 "meal": meal_name,
-                "kcal": m.get("energy"),
-                "protein_g": m.get("protein"),
-                "carb_g": m.get("carb"),
-                "fat_g": m.get("fat"),
+                "kcal": m.get(NUTRIENT_KEY["energy"]),
+                "protein_g": m.get(NUTRIENT_KEY["protein"]),
+                "carb_g": m.get(NUTRIENT_KEY["carb"]),
+                "fat_g": m.get(NUTRIENT_KEY["fat"]),
             })
     return days, meals
 
