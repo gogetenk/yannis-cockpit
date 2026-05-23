@@ -53,11 +53,24 @@ TYPE_LABELS: dict[int, tuple[str, str]] = {
     88: ("bone_mass", "kg"),
     91: ("pulse_wave_velocity", "m/s"),
     123: ("vo2_max", "ml/kg/min"),
+    130: ("afib_ecg", ""),
+    135: ("qrs_interval", "ms"),
+    136: ("pr_interval", "ms"),
+    137: ("qt_interval", "ms"),
+    138: ("corrected_qt", "ms"),
+    139: ("afib_ppg", ""),
     155: ("vascular_age", "year"),
-    167: ("nerve_health_score", ""),
+    167: ("nerve_health_score", "uS"),
+    # Empirical mapping (confirmed against real Body Scan data):
+    # 168 returned no data on our account — kept in request list to probe.
+    # 169 = extracellular water (~28kg, matches ECW range; NOT ICW as some
+    #       community wrappers claim).
+    # 170 = visceral fat score 0-12 (value ~3 fits the score scale; NOT
+    #       intracellular water which would be ~25kg).
+    168: ("type_168", ""),
     169: ("extracellular_water", "kg"),
-    170: ("intracellular_water", "kg"),
-    174: ("visceral_fat", ""),
+    170: ("visceral_fat_score", ""),
+    174: ("fat_mass_segment", "kg"),
     175: ("muscle_mass_segment", "kg"),
     196: ("electrodermal_activity_feet", "uS"),
     226: ("basal_metabolic_rate", "kcal"),
