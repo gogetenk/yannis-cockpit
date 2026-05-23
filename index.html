@@ -187,37 +187,30 @@
       text-transform: uppercase;
       color: var(--cream-on-sage-soft);
     }
-    .hero-head .figure {
+    /* Hero status — the primary signal.  Categorical word, no number. */
+    .hero-head .status {
       font-family: var(--font-display);
-      font-size: clamp(56px, 14vw, 84px);
+      font-size: clamp(40px, 9vw, 56px);
       font-weight: 300;
-      line-height: 1;
-      letter-spacing: -0.02em;
-      margin: 10px 0 10px;
-      font-variant-numeric: tabular-nums;
-      display: flex;
-      align-items: baseline;
-      gap: 8px;
+      line-height: 1.02;
+      letter-spacing: -0.015em;
+      margin: 10px 0 6px;
       color: var(--cream-on-sage);
     }
-    .hero-head .figure .unit {
-      font-size: clamp(18px, 3.5vw, 22px);
+    .hero-head .status.deviation { color: var(--ambre-brule); }
+    .hero-head .delta {
+      font-size: 14px;
+      color: var(--cream-on-sage-soft);
+      font-variant-numeric: tabular-nums;
+      margin: 0 0 4px;
+    }
+    .hero-head .figure {
+      font-family: var(--font-display);
+      font-size: 17px;
       font-weight: 400;
       color: var(--cream-on-sage-soft);
-      letter-spacing: 0;
-    }
-    .hero-head .delta {
-      font-size: 13px;
-      color: var(--cream-on-sage-soft);
-      display: flex;
-      align-items: center;
-      gap: 6px;
+      font-variant-numeric: tabular-nums;
       margin: 0;
-    }
-    .hero-head .delta .dot {
-      width: 6px; height: 6px; border-radius: 999px;
-      background: var(--sage-wash);
-      display: inline-block;
     }
 
     .chart-wrap {
@@ -462,26 +455,25 @@
     .tile {
       background: var(--warm-cream-rest);
       border-radius: var(--rounded-tile);
-      padding: 16px 16px 14px;
-      min-height: 220px;
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
+      padding: 14px 14px 12px;
+      min-height: 92px;
+      display: grid;
+      grid-template-columns: 1fr 64px;
+      grid-template-rows: auto auto;
+      column-gap: 12px;
+      align-items: center;
       position: relative;
       transition: background 180ms cubic-bezier(0.16, 1, 0.3, 1);
     }
     .tile-chart {
-      margin-top: 6px;
-      flex: 1;
-      min-height: 90px;
-      display: flex;
-      align-items: stretch;
+      grid-column: 2;
+      grid-row: 1 / span 2;
+      align-self: center;
     }
     .tile-chart svg {
       display: block;
       width: 100%;
-      height: 100%;
-      min-height: 90px;
+      height: 36px;
     }
     .tile:hover,
     .tile:focus-visible {
@@ -491,13 +483,38 @@
     .tile--wide {
       grid-column: span 2;
       min-height: auto;
+      /* Bio age tile uses its own layout (figure + sparkline row, then subages row);
+         override the compact 2-col grid that small tiles use. */
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      padding: 16px 16px 14px;
+    }
+    .tile--wide .tile-head {
+      grid-column: auto;
+      grid-row: auto;
+      width: 100%;
+    }
+    .tile--wide .subages { margin-top: 4px; }
+    /* Mini sparkline next to the big age figure */
+    .age-spark {
+      flex: 1;
+      max-width: 200px;
+      height: 36px;
+      display: block;
     }
 
     .tile-head {
+      grid-column: 1;
+      grid-row: 1;
       display: flex;
       justify-content: space-between;
       align-items: center;
+      gap: 8px;
+      min-width: 0;
     }
+    .tile-head .label,
+    .tile-head .meta { white-space: nowrap; }
     .tile-head .label { color: var(--sage-ash); }
     .tile-head .meta {
       font-size: 11px;
@@ -506,8 +523,10 @@
     }
 
     .tile-figure {
+      grid-column: 1;
+      grid-row: 2;
       font-family: var(--font-display);
-      font-size: 28px;
+      font-size: 22px;
       font-weight: 400;
       line-height: 1;
       letter-spacing: -0.01em;
@@ -516,27 +535,18 @@
       display: flex;
       align-items: baseline;
       gap: 4px;
+      margin: 4px 0 0;
+      white-space: nowrap;
+      min-width: 0;
     }
     .tile-figure .unit {
-      font-size: 13px;
+      font-size: 12px;
       font-weight: 400;
       color: var(--sage-ash);
       letter-spacing: 0;
     }
-    .tile-sub {
-      font-size: 12px;
-      color: var(--sage-ash);
-      font-variant-numeric: tabular-nums;
-    }
-    .tile-foot {
-      margin-top: auto;
-      font-size: 11px;
-      color: var(--sage-ash);
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      font-variant-numeric: tabular-nums;
-    }
+    /* Compact tiles drop the sub line and foot line — details live in drill-down. */
+    .tile-sub, .tile-foot { display: none; }
 
     /* Puck progress bar */
     .puck-bar {
@@ -578,7 +588,7 @@
     /* Composite age tile-wide — honest framing: 4 sub-ages visible */
     .tile--wide .ages {
       display: flex;
-      align-items: baseline;
+      align-items: flex-end;
       gap: 16px;
       flex-wrap: wrap;
     }
@@ -961,7 +971,7 @@
         gap: 16px;
       }
       .tile {
-        min-height: 156px;
+        min-height: 108px;
       }
       .tile--wide {
         grid-column: span 4;
@@ -1011,14 +1021,14 @@
 
   <!-- ========================== HERO TRAJECTORY ========================== -->
   <section class="hero" aria-labelledby="hero-title">
-    <!-- Header block: label + figure + delta, on clean sage (no chart underneath). -->
+    <!-- Header block: STATUS-first (delta-as-primary, weight-as-context).
+         Status word maps tolerance band: Conforme / Dérive mineure / Dérive notable / Dérive marquée.
+         Current +0,3 kg vs idéale (in band ±0,8) → Conforme. -->
     <div class="hero-head">
       <span class="label" id="hero-title">Poids</span>
-      <p class="figure">83,9<span class="unit">kg</span></p>
-      <p class="delta">
-        <span class="dot" aria-hidden="true"></span>
-        +0,3 kg vs idéale
-      </p>
+      <p class="status">Conforme</p>
+      <p class="delta">+0,3 kg vs idéale</p>
+      <p class="figure">83,9 kg</p>
     </div>
 
     <!-- ===== Trajectory chart wrap =====
@@ -1272,199 +1282,40 @@
   <!-- ========================== PILLAR TILES ========================== -->
   <main class="grid" aria-label="Piliers santé">
 
-    <!-- 1. COMPOSITION — BF% trend over last 12 months with DEXA anchors + target -->
-    <article class="tile" aria-labelledby="t-composition">
-      <header class="tile-head">
-        <span class="label" id="t-composition">Composition</span>
-        <span class="meta">21 avr</span>
-      </header>
-      <p class="tile-figure">24,3<span class="unit">% MG</span></p>
-      <p class="tile-sub">ALMI 9,42 · 20,1 kg gras</p>
-      <div class="tile-chart">
-        <svg viewBox="0 0 200 100" preserveAspectRatio="none" role="img"
-             aria-label="Masse grasse 12 derniers mois, descente de 28% à 24%, cible 16%">
-          <!-- Target line 16% -->
-          <line x1="0" y1="92" x2="200" y2="92" stroke-width="0.6"
-                stroke-dasharray="2 3" opacity="0.6" style="stroke: var(--sage-ash)"/>
-          <text x="196" y="88" text-anchor="end" font-size="8" font-weight="500"
-                style="fill: var(--sage-ash)" font-variant-numeric="tabular-nums">cible 16 %</text>
-          <!-- Area under curve (sage wash, faint) -->
-          <path d="M 8 18 L 50 28 L 92 42 L 134 56 L 176 64 L 192 68 L 192 100 L 8 100 Z"
-                opacity="0.10" style="fill: var(--deep-sage)"/>
-          <!-- Trend line: Withings daily (smoothed, dashed) -->
-          <path d="M 8 22 L 30 24 L 50 30 L 70 34 L 92 44 L 114 50 L 134 56 L 156 60 L 176 64 L 192 68"
-                fill="none" stroke-width="1" stroke-dasharray="2 3" opacity="0.5"
-                style="stroke: var(--deep-sage)"/>
-          <!-- DEXA anchor points (the truth) -->
-          <g style="fill: var(--deep-sage)">
-            <circle cx="8"   cy="18" r="2.5"/>
-            <circle cx="92"  cy="42" r="2.5"/>
-            <circle cx="176" cy="64" r="2.5"/>
-            <circle cx="192" cy="68" r="3.2"/>
-          </g>
-          <!-- X labels -->
-          <g font-size="8" font-weight="500" letter-spacing="0.04em"
-             style="fill: var(--sage-ash)">
-            <text x="8"   y="100" text-anchor="start">OCT</text>
-            <text x="92"  y="100" text-anchor="middle">JAN</text>
-            <text x="192" y="100" text-anchor="end">AVR</text>
-          </g>
-        </svg>
-      </div>
-      <p class="tile-foot">
-        <span>−8,3 pts vs cible</span>
-      </p>
-    </article>
-
-    <!-- 2. ACTIVITÉ — 7-day step bars with daily target -->
-    <article class="tile" aria-labelledby="t-activite">
-      <header class="tile-head">
-        <span class="label" id="t-activite">Activité</span>
-        <span class="meta">auj.</span>
-      </header>
-      <p class="tile-figure">8 247<span class="unit">pas</span></p>
-      <p class="tile-sub">38 min actives · 312 kcal</p>
-      <div class="tile-chart">
-        <svg viewBox="0 0 200 100" preserveAspectRatio="none" role="img"
-             aria-label="Pas par jour 7 derniers jours, moyenne 9 312, cible 10 000">
-          <!-- Target line 10k steps -->
-          <line x1="0" y1="22" x2="200" y2="22" stroke-width="0.6"
-                stroke-dasharray="2 3" opacity="0.6" style="stroke: var(--sage-ash)"/>
-          <text x="196" y="18" text-anchor="end" font-size="8" font-weight="500"
-                style="fill: var(--sage-ash)" font-variant-numeric="tabular-nums">10 000</text>
-          <!-- 7 bars (sat→fri):  10.2k, 11.8k, 8.4k, 12.1k, 7.6k, 10.4k, 8.2k -->
-          <g style="fill: var(--deep-sage)">
-            <rect x="6"   y="20" width="20" height="68" rx="2"/>
-            <rect x="34"  y="10" width="20" height="78" rx="2"/>
-            <rect x="62"  y="32" width="20" height="56" rx="2"/>
-            <rect x="90"  y="8"  width="20" height="80" rx="2"/>
-            <rect x="118" y="40" width="20" height="48" rx="2" opacity="0.55"/>
-            <rect x="146" y="18" width="20" height="70" rx="2"/>
-            <rect x="174" y="34" width="20" height="54" rx="2" opacity="0.55"/>
-          </g>
-          <!-- X labels under bars -->
-          <g font-size="7.5" font-weight="500" letter-spacing="0.04em"
-             style="fill: var(--sage-ash)">
-            <text x="16"  y="100" text-anchor="middle">S</text>
-            <text x="44"  y="100" text-anchor="middle">D</text>
-            <text x="72"  y="100" text-anchor="middle">L</text>
-            <text x="100" y="100" text-anchor="middle">M</text>
-            <text x="128" y="100" text-anchor="middle">M</text>
-            <text x="156" y="100" text-anchor="middle">J</text>
-            <text x="184" y="100" text-anchor="middle">V</text>
-          </g>
-        </svg>
-      </div>
-      <p class="tile-foot">
-        <span>moy. 7 j · 9 312</span>
-      </p>
-    </article>
-
-    <!-- 3. CARDIO — VO2max 12-week trend toward target 55 -->
-    <article class="tile" aria-labelledby="t-cardio">
-      <header class="tile-head">
-        <span class="label" id="t-cardio">Cardio</span>
-        <span class="meta">12 sem</span>
-      </header>
-      <p class="tile-figure">46<span class="unit">ml/kg</span></p>
-      <p class="tile-sub">VO₂max · HR repos 58 bpm</p>
-      <div class="tile-chart">
-        <svg viewBox="0 0 200 100" preserveAspectRatio="none" role="img"
-             aria-label="VO2max 12 semaines, montée 41 à 46, cible 55">
-          <!-- Target line 55 ml/kg -->
-          <line x1="0" y1="14" x2="200" y2="14" stroke-width="0.6"
-                stroke-dasharray="2 3" opacity="0.6" style="stroke: var(--sage-ash)"/>
-          <text x="196" y="10" text-anchor="end" font-size="8" font-weight="500"
-                style="fill: var(--sage-ash)" font-variant-numeric="tabular-nums">cible 55</text>
-          <!-- Area under VO2max curve -->
-          <path d="M 8 76 L 38 72 L 68 64 L 98 58 L 128 50 L 158 46 L 192 42 L 192 88 L 8 88 Z"
-                opacity="0.10" style="fill: var(--deep-sage)"/>
-          <!-- Line -->
-          <path d="M 8 76 L 38 72 L 68 64 L 98 58 L 128 50 L 158 46 L 192 42"
-                fill="none" stroke-width="1.75" stroke-linecap="round"
-                stroke-linejoin="round" style="stroke: var(--deep-sage)"/>
-          <!-- Current marker -->
-          <circle cx="192" cy="42" r="3.2" style="fill: var(--deep-sage)"/>
-          <!-- X labels -->
-          <g font-size="8" font-weight="500" letter-spacing="0.04em"
-             style="fill: var(--sage-ash)">
-            <text x="8"   y="100" text-anchor="start">FÉV</text>
-            <text x="100" y="100" text-anchor="middle">MARS</text>
-            <text x="192" y="100" text-anchor="end">MAI</text>
-          </g>
-        </svg>
-      </div>
-      <p class="tile-foot">
-        <span>+5 pts vs début</span>
-      </p>
-    </article>
-
-    <!-- 4. RÉCUPÉRATION — 7-day sleep duration bars with target zone 7–8h -->
-    <article class="tile" aria-labelledby="t-recup">
-      <header class="tile-head">
-        <span class="label" id="t-recup">Récupération</span>
-        <span class="meta">7 j</span>
-      </header>
-      <p class="tile-figure">6 h 42<span class="unit">moy.</span></p>
-      <p class="tile-sub">HRV 48 ms · sommeil profond 1 h 18</p>
-      <div class="tile-chart">
-        <svg viewBox="0 0 200 100" preserveAspectRatio="none" role="img"
-             aria-label="Sommeil 7 derniers jours, moyenne 6h42, cible 7-8h">
-          <!-- Target zone shaded 7–8h -->
-          <rect x="0" y="18" width="200" height="14" opacity="0.10"
-                style="fill: var(--deep-sage)"/>
-          <text x="196" y="14" text-anchor="end" font-size="8" font-weight="500"
-                style="fill: var(--sage-ash)" font-variant-numeric="tabular-nums">7–8 h</text>
-          <!-- 7 bars: 6.5, 7.2, 6.0, 7.4, 6.8, 6.3, 6.8 h.
-               y_8h = 18, y_4h = 88. Scale: 17.5px/h. -->
-          <g>
-            <rect x="6"   y="44" width="20" height="44" rx="2" style="fill: var(--ambre-brule); opacity: 0.85"/>
-            <rect x="34"  y="32" width="20" height="56" rx="2" style="fill: var(--deep-sage)"/>
-            <rect x="62"  y="53" width="20" height="35" rx="2" style="fill: var(--ambre-brule); opacity: 0.85"/>
-            <rect x="90"  y="28" width="20" height="60" rx="2" style="fill: var(--deep-sage)"/>
-            <rect x="118" y="39" width="20" height="49" rx="2" style="fill: var(--ambre-brule); opacity: 0.85"/>
-            <rect x="146" y="48" width="20" height="40" rx="2" style="fill: var(--ambre-brule); opacity: 0.85"/>
-            <rect x="174" y="39" width="20" height="49" rx="2" style="fill: var(--ambre-brule); opacity: 0.85"/>
-          </g>
-          <!-- X labels -->
-          <g font-size="7.5" font-weight="500" letter-spacing="0.04em"
-             style="fill: var(--sage-ash)">
-            <text x="16"  y="100" text-anchor="middle">S</text>
-            <text x="44"  y="100" text-anchor="middle">D</text>
-            <text x="72"  y="100" text-anchor="middle">L</text>
-            <text x="100" y="100" text-anchor="middle">M</text>
-            <text x="128" y="100" text-anchor="middle">M</text>
-            <text x="156" y="100" text-anchor="middle">J</text>
-            <text x="184" y="100" text-anchor="middle">V</text>
-          </g>
-        </svg>
-      </div>
-      <p class="tile-foot">
-        <span>−18 min vs cible</span>
-      </p>
-    </article>
-
-    <!-- 5. ÂGE BIOLOGIQUE (wide) — composite of 4 sub-ages with explicit drivers.
-         Algorithm: see ALGO_BIO_AGE.md. Weights PhenoAge 0.34, FitAge 0.28,
-         Body 0.20, Bone 0.17.  Bone drives the +7 ans gap. -->
+    <!-- ÂGE BIOLOGIQUE — promoted to first card after Wegovy.
+         Trajectory sparkline beside the figure: 12-month evolution of the composite.
+         Sub-ages bar chart below. -->
     <article class="tile tile--wide" aria-labelledby="t-age">
       <header class="tile-head">
         <span class="label" id="t-age">Âge biologique</span>
+        <span class="meta">12 mois</span>
       </header>
 
       <div class="ages">
         <span class="real">33<span class="unit"> ans</span></span>
+        <svg class="age-spark" viewBox="0 0 120 40" preserveAspectRatio="none" role="img"
+             aria-label="Évolution composite 12 mois: 36 → 35 → 34 → 33">
+          <!-- Chrono baseline at age 35 → y = 14 -->
+          <line x1="0" y1="14" x2="120" y2="14" stroke-width="0.6"
+                stroke-dasharray="2 3" opacity="0.45" style="stroke: var(--sage-ash)"/>
+          <text x="118" y="11" text-anchor="end" font-size="7" font-weight="500"
+                style="fill: var(--sage-ash)" font-variant-numeric="tabular-nums">chrono 35</text>
+          <!-- Line: 36 (y=8) → 35.5 → 35 (y=14) → 34.5 → 34 → 33.5 → 33 (y=22).
+               Scale: y = 14 - (age-35) * 4 (inverted, more = older = higher) -->
+          <path d="M 6 6 L 24 8 L 42 14 L 60 17 L 78 19 L 96 21 L 114 22"
+                fill="none" stroke-width="1.5" stroke-linecap="round"
+                stroke-linejoin="round" style="stroke: var(--deep-sage)"/>
+          <circle cx="114" cy="22" r="2.2" style="fill: var(--deep-sage)"/>
+        </svg>
         <span class="vs-inline">−2 vs chrono</span>
       </div>
 
-      <!-- Sub-ages: Cardio 28 / Sang 34 / Composition 36 / Os : OK (statut, pas un âge).
-           Bone deliberately shown as a status badge per ISCD 2019 — pas de "skeletal
-           age in years" pour un mâle < 50 ans. -->
+      <!-- Sub-ages bar chart -->
       <div class="subages" aria-label="4 sous-âges biologiques">
         <div class="subage">
           <div class="subage-bar">
             <span class="subage-fill" style="height: 41%"></span>
-            <span class="subage-chrono" title="âge chrono 35"></span>
+            <span class="subage-chrono"></span>
           </div>
           <span class="subage-val">28</span>
           <span class="subage-label">Cardio</span>
@@ -1494,36 +1345,87 @@
           <span class="subage-label">Squelette</span>
         </div>
       </div>
+    </article>
 
+    <!-- 4 PILIERS COMPACTS — label + figure + mini sparkline, drill-in for details -->
+    <article class="tile" aria-labelledby="t-composition">
+      <header class="tile-head">
+        <span class="label" id="t-composition">Composition</span>
+        <span class="meta">21 avr</span>
+      </header>
+      <p class="tile-figure">24,3<span class="unit">% MG</span></p>
+      <div class="tile-chart">
+        <svg viewBox="0 0 64 36" preserveAspectRatio="none" role="img" aria-label="BF% descente 12 mois">
+          <path d="M 2 6 L 16 10 L 30 16 L 44 22 L 58 26"
+                fill="none" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"
+                style="stroke: var(--deep-sage)"/>
+          <circle cx="58" cy="26" r="2" style="fill: var(--deep-sage)"/>
+        </svg>
+      </div>
+    </article>
+
+    <!-- 2. ACTIVITÉ — 7-day step bars with daily target -->
+    <article class="tile" aria-labelledby="t-activite">
+      <header class="tile-head">
+        <span class="label" id="t-activite">Activité</span>
+        <span class="meta">auj.</span>
+      </header>
+      <p class="tile-figure">8 247<span class="unit">pas</span></p>
+      <div class="tile-chart">
+        <svg viewBox="0 0 64 36" preserveAspectRatio="none" role="img" aria-label="Pas 7 jours">
+          <g style="fill: var(--deep-sage)">
+            <rect x="2"  y="8"  width="6" height="26" rx="1"/>
+            <rect x="11" y="4"  width="6" height="30" rx="1"/>
+            <rect x="20" y="14" width="6" height="20" rx="1"/>
+            <rect x="29" y="3"  width="6" height="31" rx="1"/>
+            <rect x="38" y="18" width="6" height="16" rx="1" opacity="0.55"/>
+            <rect x="47" y="7"  width="6" height="27" rx="1"/>
+            <rect x="56" y="15" width="6" height="19" rx="1" opacity="0.55"/>
+          </g>
+        </svg>
+      </div>
+    </article>
+
+    <!-- 3. CARDIO — VO2max 12-week trend toward target 55 -->
+    <article class="tile" aria-labelledby="t-cardio">
+      <header class="tile-head">
+        <span class="label" id="t-cardio">Cardio</span>
+        <span class="meta">12 sem</span>
+      </header>
+      <p class="tile-figure">46<span class="unit">ml/kg</span></p>
+      <div class="tile-chart">
+        <svg viewBox="0 0 64 36" preserveAspectRatio="none" role="img" aria-label="VO2max 12 sem">
+          <path d="M 2 28 L 14 26 L 26 22 L 38 18 L 50 14 L 62 11"
+                fill="none" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"
+                style="stroke: var(--deep-sage)"/>
+          <circle cx="62" cy="11" r="2" style="fill: var(--deep-sage)"/>
+        </svg>
+      </div>
+    </article>
+
+    <!-- 4. RÉCUPÉRATION — 7-day sleep duration bars with target zone 7–8h -->
+    <article class="tile" aria-labelledby="t-recup">
+      <header class="tile-head">
+        <span class="label" id="t-recup">Récupération</span>
+        <span class="meta">7 j</span>
+      </header>
+      <p class="tile-figure">6 h 42<span class="unit">moy.</span></p>
+      <div class="tile-chart">
+        <svg viewBox="0 0 64 36" preserveAspectRatio="none" role="img" aria-label="Sommeil 7 jours">
+          <g>
+            <rect x="2"  y="16" width="6" height="18" rx="1" style="fill: var(--ambre-brule); opacity: 0.85"/>
+            <rect x="11" y="11" width="6" height="23" rx="1" style="fill: var(--deep-sage)"/>
+            <rect x="20" y="20" width="6" height="14" rx="1" style="fill: var(--ambre-brule); opacity: 0.85"/>
+            <rect x="29" y="9"  width="6" height="25" rx="1" style="fill: var(--deep-sage)"/>
+            <rect x="38" y="14" width="6" height="20" rx="1" style="fill: var(--ambre-brule); opacity: 0.85"/>
+            <rect x="47" y="18" width="6" height="16" rx="1" style="fill: var(--ambre-brule); opacity: 0.85"/>
+            <rect x="56" y="14" width="6" height="20" rx="1" style="fill: var(--ambre-brule); opacity: 0.85"/>
+          </g>
+        </svg>
+      </div>
     </article>
 
   </main>
-
-  <!-- ========================== LONG-TERM MARKERS FOOTER ========================== -->
-  <footer class="long-term" aria-labelledby="lt-heading">
-    <div class="header">
-      <h3 id="lt-heading">Marqueurs long-terme</h3>
-      <span class="next">prochain bilan · 21 nov 2026</span>
-    </div>
-
-    <dl>
-      <div class="marker flagged">
-        <dt>VAT (viscéral)</dt>
-        <dd>120<span style="font-size:11px;color:var(--sage-ash);font-family:var(--font-body)"> cm²</span></dd>
-        <span class="since">DEXA · il y a 38 j · seuil risque 100</span>
-      </div>
-      <div class="marker">
-        <dt>ApoB</dt>
-        <dd>109<span style="font-size:11px;color:var(--sage-ash);font-family:var(--font-body)"> mg/dL</span></dd>
-        <span class="since">sang · il y a 1 j</span>
-      </div>
-      <div class="marker">
-        <dt>HbA1c</dt>
-        <dd>5,0<span style="font-size:11px;color:var(--sage-ash);font-family:var(--font-body)"> %</span></dd>
-        <span class="since">sang · il y a 1 j</span>
-      </div>
-    </dl>
-  </footer>
 
   <!-- ============================================================
        INTERACTIVE TRAJECTORY CHART
