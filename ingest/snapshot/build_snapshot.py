@@ -294,18 +294,21 @@ def build_signals(yazio: list[dict], measurements: list[dict], activity: list[di
     if today_week >= 1 and wt_end:
         real_loss = START_KG - wt_end[0]
         predicted_loss = START_KG - weight_ideal(today_week)
-        if abs(predicted_loss) > 0.1:
-            z = (real_loss - predicted_loss) / max(0.5, predicted_loss * 0.15)
-            out.append({
-                "id": "wegovy_response",
-                "title": "Réponse Wegovy",
-                "sub": f"−{real_loss:.1f} kg réel vs −{predicted_loss:.1f} prédit STEP-1 W{today_week:.1f}".replace(".", ","),
-                "value": ("+" if z >= 0 else "−") + fmt_num(abs(z), 1),
-                "unit": "z STEP-1",
-                "status": "ok",
-                "status_label": "sur trajectoire" if abs(z) < 1 else "rapide",
-                "spark": _line_spark([START_KG - float(p["kg"]) for p in real_weight_points(measurements, start, today)], "sage", end_dot=True),
-            })
+        # STEP-1 trial cohort SD at week W ≈ 0.4 + 0.2 * sqrt(W) kg (Wilding
+        # NEJM 2021 supplementary). Floor at 1.0 kg to avoid early-week noise.
+        sd = max(1.0, 0.4 + 0.2 * math.sqrt(today_week))
+        z = (real_loss - predicted_loss) / sd
+        label = "sur trajectoire" if abs(z) < 1 else ("plus rapide" if z > 0 else "plus lent")
+        out.append({
+            "id": "wegovy_response",
+            "title": "Réponse Wegovy",
+            "sub": f"−{real_loss:.1f} kg réel vs −{predicted_loss:.1f} prédit STEP-1 W{today_week:.1f} · SD {sd:.1f} kg".replace(".", ","),
+            "value": ("+" if z >= 0 else "−") + fmt_num(abs(z), 1),
+            "unit": "z STEP-1",
+            "status": "ok" if abs(z) < 1.5 else "watch",
+            "status_label": label,
+            "spark": _line_spark([START_KG - float(p["kg"]) for p in real_weight_points(measurements, start, today)], "sage", end_dot=True),
+        })
 
     # --- Sleep × HRV: needs hc_raw_record (Health Connect via Android app) ---
     hrv = _avg_hrv_from_hc(hc_records, today)
