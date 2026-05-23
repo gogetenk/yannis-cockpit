@@ -31,6 +31,7 @@ import requests
 
 TOKEN_URL = "https://wbsapi.withings.net/v2/oauth2"
 MEASURE_URL = "https://wbsapi.withings.net/measure"
+MEASURE_V2_URL = "https://wbsapi.withings.net/v2/measure"
 DEFAULT_LASTUPDATE_WINDOW_DAYS = 14  # safety net if state lost
 
 # Withings measure types we care about (extend as needed). Labels are for
@@ -208,6 +209,57 @@ def rows_from_group(grp: dict) -> list[dict]:
     return out
 
 
+def fetch_activities(access_token: str, start_ymd: str, end_ymd: str) -> Iterable[dict]:
+    """Iterate daily activity rows (steps, distance, intensity minutes, kcal).
+    Source can be a Withings tracker OR an external app (Health Connect,
+    Strava…) since Withings aggregates from connected sources."""
+    offset = 0
+    while True:
+        q = {
+            "action": "getactivity",
+            "startdateymd": start_ymd,
+            "enddateymd": end_ymd,
+            "data_fields": "steps,distance,elevation,soft,moderate,intense,active,calories,totalcalories,hr_average,hr_min,hr_max,hr_zone_0,hr_zone_1,hr_zone_2,hr_zone_3",
+        }
+        if offset:
+            q["offset"] = offset
+        r = requests.post(
+            MEASURE_V2_URL,
+            data=q,
+            headers={"Authorization": f"Bearer {access_token}"},
+            timeout=30,
+        )
+        r.raise_for_status()
+        data = r.json()
+        if data.get("status") != 0:
+            sys.exit(f"getactivity failed: {json.dumps(data)[:500]}")
+        body = data["body"]
+        for act in body.get("activities", []):
+            yield act
+        if not body.get("more"):
+            return
+        offset = body.get("offset", 0)
+
+
+def row_from_activity(act: dict) -> dict:
+    """Project one activity day into a yazio-style row."""
+    return {
+        "date": act["date"],
+        "steps": act.get("steps"),
+        "distance_m": act.get("distance"),
+        "elevation_m": act.get("elevation"),
+        "soft_min": act.get("soft"),
+        "moderate_min": act.get("moderate"),
+        "intense_min": act.get("intense"),
+        "active_min": act.get("active"),
+        "active_kcal": act.get("calories"),
+        "total_kcal": act.get("totalcalories"),
+        "timezone": act.get("timezone"),
+        "source_model": act.get("model"),
+        "raw": act,
+    }
+
+
 def latest_ts() -> int | None:
     """Highest ts we already have, as epoch seconds."""
     rows = sb_get("withings_measurement", {
@@ -251,7 +303,23 @@ def main() -> None:
             all_rows = []
     if all_rows:
         sb_upsert(all_rows, "withings_measurement", "ts,type_code,measure_grp_id,position")
-    print(f"done. {grp_count} measure groups.", file=sys.stderr)
+    print(f"  measurements done. {grp_count} measure groups.", file=sys.stderr)
+
+    # --- Activity (steps, distance, intensity, kcal) -----------------
+    if backfill:
+        start_dt = datetime.now(timezone.utc) - timedelta(days=int(backfill))
+        end_dt = datetime.now(timezone.utc)
+    else:
+        # Refresh a 14-day tail every run so late syncs from Health Connect
+        # (Huawei → Health Sync → HC → Withings can lag a day or two) land
+        # without needing webhooks.
+        start_dt = datetime.now(timezone.utc) - timedelta(days=14)
+        end_dt = datetime.now(timezone.utc)
+    start_ymd, end_ymd = start_dt.strftime("%Y-%m-%d"), end_dt.strftime("%Y-%m-%d")
+    print(f"→ activity {start_ymd} → {end_ymd}", file=sys.stderr)
+    act_rows = [row_from_activity(a) for a in fetch_activities(tok["access_token"], start_ymd, end_ymd)]
+    sb_upsert(act_rows, "withings_activity_daily", "date")
+    print(f"  activity done. {len(act_rows)} days.", file=sys.stderr)
 
 
 if __name__ == "__main__":
