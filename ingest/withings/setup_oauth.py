@@ -85,7 +85,7 @@ def exchange_code(code: str) -> dict:
         "code": code,
         "redirect_uri": CALLBACK_URL,
     }
-    r = requests.post(TOKEN_URL, data=payload, timeout=15)
+    r = requests.post(TOKEN_URL, data=payload, timeout=60)
     r.raise_for_status()
     data = r.json()
     if data.get("status") != 0:
@@ -112,7 +112,7 @@ def store_tokens(body: dict) -> None:
         "Content-Type": "application/json",
         "Prefer": "resolution=merge-duplicates,return=minimal",
     }
-    r = requests.post(url, headers=headers, data=json.dumps([payload]), timeout=15)
+    r = requests.post(url, headers=headers, data=json.dumps([payload]), timeout=60)
     if not r.ok:
         sys.exit(f"upsert failed {r.status_code}: {r.text[:500]}")
     print(f"✓ tokens stored. userid={payload['userid']} expires_at={expires_at.isoformat()}", file=sys.stderr)

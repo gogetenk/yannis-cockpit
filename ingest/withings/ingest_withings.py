@@ -95,11 +95,20 @@ def sb_get(path: str, params: dict | None = None) -> list:
 def sb_upsert(rows: list[dict], table: str, on_conflict: str) -> None:
     if not rows:
         return
+    # Postgres ON CONFLICT rejects batches that touch the same PK twice
+    # in a single statement. Withings occasionally returns duplicate
+    # measures within a group (e.g. two weight readings same second); we
+    # keep the last one seen for each PK before posting.
+    keys = on_conflict.split(",")
+    deduped: dict[tuple, dict] = {}
+    for r in rows:
+        deduped[tuple(r[k] for k in keys)] = r
+    payload = list(deduped.values())
     url = f"{env('SUPABASE_URL')}/rest/v1/{table}?on_conflict={on_conflict}"
     headers = {**sb_headers(), "Prefer": "resolution=merge-duplicates,return=minimal"}
-    r = requests.post(url, headers=headers, data=json.dumps(rows), timeout=60)
-    if not r.ok:
-        sys.exit(f"upsert {table} failed {r.status_code}: {r.text[:500]}")
+    resp = requests.post(url, headers=headers, data=json.dumps(payload), timeout=60)
+    if not resp.ok:
+        sys.exit(f"upsert {table} failed {resp.status_code}: {resp.text[:500]}")
 
 
 def load_token() -> dict:
