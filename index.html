@@ -163,11 +163,11 @@
     }
 
     /* ===========================================================
-       HERO  (deep sage panel, chart-as-canvas)
-       The chart fills the panel edge-to-edge.  Summary information
-       (figure, delta, ETA) lives in absolute overlays positioned in
-       the corners, with a faint sage vignette behind each overlay
-       so the chart curve passing under text stays readable.
+       HERO  (deep sage panel)
+       Three stacked blocks with real breathing room:
+         1. .hero-head     — label + figure + delta on clean sage
+         2. .chart-wrap    — full-width trajectory chart
+         3. .hero-foot     — ETA chip with hairline divider
        =========================================================== */
     section.hero {
       background: var(--deep-sage);
@@ -175,6 +175,49 @@
       padding: 0;
       position: relative;
       overflow: hidden;
+    }
+
+    .hero-head {
+      padding: 26px 22px 18px;
+    }
+    .hero-head .label {
+      display: block;
+      font-size: 11px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--cream-on-sage-soft);
+    }
+    .hero-head .figure {
+      font-family: var(--font-display);
+      font-size: clamp(56px, 14vw, 84px);
+      font-weight: 300;
+      line-height: 1;
+      letter-spacing: -0.02em;
+      margin: 10px 0 10px;
+      font-variant-numeric: tabular-nums;
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+      color: var(--cream-on-sage);
+    }
+    .hero-head .figure .unit {
+      font-size: clamp(18px, 3.5vw, 22px);
+      font-weight: 400;
+      color: var(--cream-on-sage-soft);
+      letter-spacing: 0;
+    }
+    .hero-head .delta {
+      font-size: 13px;
+      color: var(--cream-on-sage-soft);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin: 0;
+    }
+    .hero-head .delta .dot {
+      width: 6px; height: 6px; border-radius: 999px;
+      background: var(--sage-wash);
+      display: inline-block;
     }
 
     .chart-wrap {
@@ -187,113 +230,39 @@
     .chart-wrap svg.trajectory {
       display: block;
       width: 100%;
-      height: clamp(280px, 62vw, 340px);
+      height: clamp(220px, 52vw, 300px);
     }
 
-    /* Hero overlays — clear corners that read as a single composition
-       even when the chart curve passes underneath. */
-    .hero-overlay {
-      position: absolute;
-      z-index: 2;
-      color: var(--cream-on-sage);
-      pointer-events: none;
-    }
-    .hero-overlay--tl {
-      top: 22px;
-      left: 22px;
-      max-width: 60%;
-    }
-    .hero-overlay--tl::before {
-      /* Subtle radial vignette: just enough so the curve under the
-         figure stays the chart, not the focal point. */
-      content: "";
-      position: absolute;
-      top: -28px; left: -28px;
-      width: 280px;
-      height: 160px;
-      background: radial-gradient(ellipse at top left,
-        oklch(40% 0.07 150 / 0.85) 0%,
-        oklch(40% 0.07 150 / 0.0) 70%);
-      z-index: -1;
-      pointer-events: none;
-    }
-    .hero-overlay--tl .label {
-      display: block;
-      font-size: 11px;
-      letter-spacing: 0.06em;
-      text-transform: uppercase;
-      color: var(--cream-on-sage-soft);
-    }
-    .hero-overlay--tl .figure {
-      font-family: var(--font-display);
-      font-size: clamp(56px, 13vw, 84px);
-      font-weight: 300;
-      line-height: 1;
-      letter-spacing: -0.02em;
-      margin: 6px 0 6px;
-      font-variant-numeric: tabular-nums;
+    .hero-foot {
       display: flex;
+      justify-content: space-between;
       align-items: baseline;
-      gap: 8px;
+      padding: 14px 22px 22px;
+      border-top: 1px solid oklch(96% 0.005 150 / 0.10);
+      margin-top: 6px;
     }
-    .hero-overlay--tl .figure .unit {
-      font-size: clamp(18px, 3.5vw, 22px);
-      font-weight: 400;
-      color: var(--cream-on-sage-soft);
-      letter-spacing: 0;
-    }
-    .hero-overlay--tl .delta {
-      font-size: 13px;
-      color: var(--cream-on-sage-soft);
+    .hero-foot .eta-left {
       display: flex;
-      align-items: center;
-      gap: 6px;
+      flex-direction: column;
+      gap: 2px;
     }
-    .hero-overlay--tl .delta .dot {
-      width: 6px; height: 6px; border-radius: 999px;
-      background: var(--sage-wash);
-      display: inline-block;
-    }
-
-    .hero-overlay--br {
-      bottom: 18px;
-      right: 22px;
-      text-align: right;
-    }
-    .hero-overlay--br::before {
-      content: "";
-      position: absolute;
-      bottom: -22px; right: -28px;
-      width: 240px;
-      height: 110px;
-      background: radial-gradient(ellipse at bottom right,
-        oklch(40% 0.07 150 / 0.85) 0%,
-        oklch(40% 0.07 150 / 0.0) 70%);
-      z-index: -1;
-      pointer-events: none;
-    }
-    .hero-overlay--br .eta-label {
-      display: block;
+    .hero-foot .eta-label {
       font-size: 11px;
-      letter-spacing: 0.06em;
+      letter-spacing: 0.08em;
       text-transform: uppercase;
       color: var(--cream-on-sage-soft);
     }
-    .hero-overlay--br .eta-date {
+    .hero-foot .eta-date {
       font-family: var(--font-display);
       font-size: 17px;
       font-weight: 400;
       color: var(--cream-on-sage);
       font-variant-numeric: tabular-nums;
-      margin-top: 2px;
-      display: block;
     }
-    .hero-overlay--br .scope {
+    .hero-foot .scope {
       font-size: 11px;
       color: var(--cream-on-sage-soft);
       letter-spacing: 0.04em;
-      margin-top: 6px;
-      display: block;
     }
 
     /* shadcn-style tooltip card.  Hover-lift shadow is allowed per
@@ -784,28 +753,15 @@
         padding: 0 32px;
       }
 
-      /* HERO: chart fills full panel, overlays handle text */
-      section.hero {
-        padding: 0;
+      /* HERO desktop: wider padding around head/foot blocks, taller chart. */
+      .hero-head {
+        padding: 36px 40px 22px;
       }
       .chart-wrap svg.trajectory {
-        height: clamp(340px, 38vw, 420px);
+        height: clamp(280px, 32vw, 360px);
       }
-      .hero-overlay--tl {
-        top: 32px;
-        left: 36px;
-      }
-      .hero-overlay--tl::before {
-        width: 360px;
-        height: 200px;
-      }
-      .hero-overlay--br {
-        bottom: 28px;
-        right: 36px;
-      }
-      .hero-overlay--br::before {
-        width: 300px;
-        height: 130px;
+      .hero-foot {
+        padding: 18px 40px 28px;
       }
 
       /* WEGOVY: wider banner */
@@ -894,8 +850,8 @@
 
   <!-- ========================== HERO TRAJECTORY ========================== -->
   <section class="hero" aria-labelledby="hero-title">
-    <!-- Top-left summary overlay (figure + delta).  Sits over the chart. -->
-    <div class="hero-overlay hero-overlay--tl">
+    <!-- Header block: label + figure + delta, on clean sage (no chart underneath). -->
+    <div class="hero-head">
       <span class="label" id="hero-title">Poids</span>
       <p class="figure">83,9<span class="unit">kg</span></p>
       <p class="delta">
@@ -1090,10 +1046,12 @@
     </div>
     </div><!-- /chart-wrap -->
 
-    <!-- Bottom-right ETA overlay -->
-    <div class="hero-overlay hero-overlay--br">
-      <span class="eta-label">ETA 75 kg</span>
-      <span class="eta-date">≈ 18 février 2027</span>
+    <!-- Footer block: ETA chip with hairline divider above. -->
+    <div class="hero-foot">
+      <div class="eta-left">
+        <span class="eta-label">ETA 75 kg</span>
+        <span class="eta-date">≈ 18 février 2027</span>
+      </div>
       <span class="scope">90 j · obj.</span>
     </div>
   </section>
