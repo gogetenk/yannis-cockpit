@@ -234,25 +234,39 @@ def build_signals(yazio: list[dict], measurements: list[dict], activity: list[di
     """5 cross-source signals. Returns only those with usable data."""
     out: list[dict] = []
 
-    # --- TDEE apparent (28d) ---
+    # --- Déficit énergétique observable (28d) ---
+    # Pivot from naive TDEE (biased by sparse intake logging) to a more honest
+    # signal: the deficit implied purely by weight change. Independent of how
+    # many days the user logged. Uses Wegovy-tuned 6500 kcal/kg coefficient.
     win_start = today - timedelta(days=28)
-    intake = [y for y in yazio if y.get("kcal") and date.fromisoformat(y["date"]) >= win_start and date.fromisoformat(y["date"]) <= today]
-    wt_start = next((m for m in measurements if m["type_code"] == 1 and date.fromisoformat(m["ts"][:10]) <= win_start), None)
+    wt_start = next(
+        (m for m in measurements if m["type_code"] == 1 and date.fromisoformat(m["ts"][:10]) <= win_start),
+        None,
+    )
     wt_end = latest_weight_kg(measurements)
-    if intake and wt_start and wt_end and len(intake) >= 7:
-        avg_intake = sum(float(y["kcal"]) for y in intake) / len(intake)
+    if wt_start and wt_end:
         delta_kg = wt_end[0] - float(wt_start["value"])
-        tdee = avg_intake + (delta_kg * 6500) / 28
-        tdee_band = round(abs(tdee) * 0.08)
+        deficit_per_day = -(delta_kg * 6500) / 28  # positive when losing
+        intake_28d = [
+            y for y in yazio
+            if y.get("kcal") and y["kcal"] > 100
+            and win_start <= date.fromisoformat(y["date"]) <= today
+        ]
+        logged_n = len(intake_28d)
+        sub_bits = [f"poids {round(wt_start['value'], 1)}→{round(wt_end[0], 1)} kg sur 28 j", "coeff 6 500 (Wegovy)"]
+        if logged_n >= 5:
+            avg_logged_kcal = round(sum(float(y["kcal"]) for y in intake_28d) / logged_n)
+            sub_bits.append(f"{logged_n} j Yazio loggés Ø {avg_logged_kcal} kcal")
+        watch = abs(deficit_per_day) > 800  # >800 kcal/j = perte trop rapide
         out.append({
-            "id": "tdee",
-            "title": "TDEE apparent",
-            "sub": f"{len(intake)} j · coeff 6 500 (Wegovy) · biais log ~20 %",
-            "value": f"{int(round(tdee)):,}".replace(",", " "),
-            "unit": f"± {tdee_band} kcal",
-            "status": "ok",
-            "status_label": "on track",
-            "spark": _line_spark([float(y["kcal"]) for y in intake[-14:]], "sage"),
+            "id": "deficit",
+            "title": "Déficit énergétique",
+            "sub": " · ".join(sub_bits),
+            "value": ("+" if deficit_per_day >= 0 else "−") + f"{abs(int(round(deficit_per_day))):,}".replace(",", " "),
+            "unit": "kcal / j moy.",
+            "status": "watch" if watch else "ok",
+            "status_label": "trop rapide" if watch else ("perte en cours" if deficit_per_day > 100 else "stable"),
+            "spark": _line_spark([float(y["kcal"]) for y in intake_28d[-14:]], "sage") if intake_28d else {"kind": "line", "color": "sage", "points": []},
         })
 
     # --- Proteins / LBM ---
