@@ -545,7 +545,7 @@ def build_pillars(yazio: list[dict], measurements: list[dict], activity: list[di
         pillars.append({
             "key": "cardio",
             "label": "Cardio (HR repos)",
-            "meta": f"{min(12, len(last12w) // 7)} sem",
+            "meta": f"{max(1, min(12, len(last12w) // 7))} sem",
             "figure": str(latest_hr),
             "unit": "bpm",
             "chart": {
