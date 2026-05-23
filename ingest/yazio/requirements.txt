@@ -1,0 +1,2 @@
+yazio-exporter>=0.2.0
+requests>=2.32.0

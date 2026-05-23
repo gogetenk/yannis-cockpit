@@ -8,3 +8,7 @@ out/
 mockup/shots/
 
 .vercel
+
+# .mcp.json contains a Supabase PAT in clear; keep it local.
+.mcp.json
+.claude/settings.local.json

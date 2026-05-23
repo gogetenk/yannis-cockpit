@@ -1,0 +1,37 @@
+name: Ingest Yazio
+
+on:
+  schedule:
+    # Daily at 04:00 UTC = 08:00 Dubai local. After most users finish logging
+    # the previous day. Cron is best-effort on free GH Actions, expect drift.
+    - cron: "0 4 * * *"
+  workflow_dispatch:
+    inputs:
+      days:
+        description: "Rolling window of dates to refresh (default 14)"
+        default: "14"
+
+jobs:
+  ingest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: ingest/yazio/requirements.txt
+
+      - name: Install ingest deps
+        run: pip install -r ingest/yazio/requirements.txt
+
+      - name: Run ingest
+        env:
+          YAZIO_EMAIL: ${{ secrets.YAZIO_EMAIL }}
+          YAZIO_PASSWORD: ${{ secrets.YAZIO_PASSWORD }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          INGEST_DAYS: ${{ github.event.inputs.days || '14' }}
+        run: python ingest/yazio/ingest_yazio.py
