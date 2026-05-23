@@ -613,6 +613,14 @@
       font-weight: 500;
       color: var(--sage-ink);
     }
+    .tile--wide .ages .vs-inline {
+      font-family: var(--font-display);
+      font-size: 16px;
+      color: var(--sage-ash);
+      font-variant-numeric: tabular-nums;
+      align-self: flex-end;
+      padding-bottom: 4px;
+    }
 
     /* Sub-ages — 4 bars, height ∝ age, label below, weight micro-label */
     .subages {
@@ -1305,8 +1313,7 @@
         </svg>
       </div>
       <p class="tile-foot">
-        <span>4 DEXA · −3,7 pts / 12 mo</span>
-        <span>−8,3 pts cible</span>
+        <span>−8,3 pts vs cible</span>
       </p>
     </article>
 
@@ -1351,7 +1358,6 @@
       </div>
       <p class="tile-foot">
         <span>moy. 7 j · 9 312</span>
-        <span>−12 % vs sem.−1</span>
       </p>
     </article>
 
@@ -1391,7 +1397,6 @@
       </div>
       <p class="tile-foot">
         <span>+5 pts / 12 sem</span>
-        <span>+1 vs sem.−1</span>
       </p>
     </article>
 
@@ -1436,7 +1441,6 @@
         </svg>
       </div>
       <p class="tile-foot">
-        <span>2 / 7 j dans cible</span>
         <span>−18 min vs cible</span>
       </p>
     </article>
@@ -1447,15 +1451,12 @@
     <article class="tile tile--wide" aria-labelledby="t-age">
       <header class="tile-head">
         <span class="label" id="t-age">Âge biologique</span>
-        <span class="meta">composite · 4 sous-âges · IC 95 %</span>
+        <span class="meta">vs chrono 35</span>
       </header>
 
       <div class="ages">
         <span class="real">33<span class="unit"> ans</span></span>
-        <div class="ages-meta">
-          <span class="ci">[31 – 35]</span>
-          <span class="vs">vs chrono <strong>35</strong> · <strong>−2 ans</strong></span>
-        </div>
+        <span class="vs-inline">−2 ans</span>
       </div>
 
       <!-- Sub-ages: Cardio 28 / Sang 34 / Composition 36 / Os : OK (statut, pas un âge).
@@ -1469,7 +1470,6 @@
           </div>
           <span class="subage-val">28</span>
           <span class="subage-label">Cardio</span>
-          <span class="subage-w">0,28</span>
         </div>
         <div class="subage">
           <div class="subage-bar">
@@ -1478,7 +1478,6 @@
           </div>
           <span class="subage-val">34</span>
           <span class="subage-label">Sang</span>
-          <span class="subage-w">0,34</span>
         </div>
         <div class="subage">
           <div class="subage-bar">
@@ -1487,7 +1486,6 @@
           </div>
           <span class="subage-val">36</span>
           <span class="subage-label">Composition</span>
-          <span class="subage-w">0,20</span>
         </div>
         <div class="subage">
           <div class="subage-bar">
@@ -1496,14 +1494,9 @@
           </div>
           <span class="subage-val">36</span>
           <span class="subage-label">Squelette</span>
-          <span class="subage-w">0,17</span>
         </div>
       </div>
 
-      <p class="tile-foot">
-        <span>driver · VAT 120 cm² (cardiométabolique)</span>
-        <span>levier · Wegovy ladder + cardio</span>
-      </p>
     </article>
 
   </main>
