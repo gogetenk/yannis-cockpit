@@ -1386,3 +1386,13 @@ header.detail-header .detail-back:focus-visible {
   header.detail-header { padding: 26px 36px 30px; }
   .detail-body { padding: 28px 36px 80px; gap: 32px; }
 }
+
+.wegovy.wegovy--link {
+  color: inherit;
+  text-decoration: none;
+  cursor: pointer;
+}
+.wegovy.wegovy--link:focus-visible {
+  outline: 2px solid var(--deep-sage);
+  outline-offset: 2px;
+}

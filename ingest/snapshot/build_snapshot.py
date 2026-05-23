@@ -793,6 +793,74 @@ def build_pillar_detail_cardio(activity: list[dict], today: date) -> dict | None
     }
 
 
+def build_detail_wegovy(measurements: list[dict], today: date) -> dict:
+    """Full titration plan with annotated weight trajectory + STEP-1 methodology."""
+    start = date.fromisoformat(WEGOVY_START_ISO)
+    day = (today - start).days
+    week = day / 7
+    wt_end = latest_weight_kg(measurements)
+    current_kg = wt_end[0] if wt_end else START_KG
+    real_loss = START_KG - current_kg
+    predicted_loss = START_KG - weight_ideal(week)
+
+    # Build dose schedule rows: ladder steps annotated with dates.
+    schedule_rows: list[dict] = []
+    for i, step in enumerate(WEGOVY_LADDER, start=1):
+        lo, hi = step["weeks"]
+        step_start = start + timedelta(weeks=lo)
+        if hi is None:
+            label = "à partir de " + fmt_date_fr(step_start)
+        else:
+            step_end = start + timedelta(weeks=hi)
+            label = f"{fmt_date_fr(step_start)} → {fmt_date_fr(step_end - timedelta(days=1))}"
+        marker = "→ en cours" if (hi is None or week < hi) and week >= lo else ("✓" if week >= (hi or 999) else "")
+        schedule_rows.append({
+            "date": f"étape {i}",
+            "value": f"{step['dose_mg']} mg",
+            "unit": label + (f"  ({marker})" if marker else ""),
+        })
+
+    # Real weight trajectory points.
+    pts = [
+        {"date": fmt_date_fr(start + timedelta(days=int(p["week"] * 7))), "value": p["kg"]}
+        for p in real_weight_points(measurements, start, today)
+    ]
+    # Ideal trajectory along same window for comparison band.
+    ideal = []
+    for w in range(0, int(week) + 1):
+        ideal.append({"date": fmt_date_fr(start + timedelta(weeks=w)), "value": round(weight_ideal(w), 2)})
+
+    return {
+        "key": "wegovy",
+        "title": "Wegovy · plan de titration",
+        "meta": f"J + {day} · dose {WEGOVY_LADDER[min(len(WEGOVY_LADDER) - 1, int(week / 4))]['dose_mg']} mg",
+        "hero": {
+            "figure": f"−{real_loss:.1f}".replace(".", ","),
+            "unit": f"kg en {day} j",
+            "delta_label": f"vs −{predicted_loss:.1f} kg STEP-1 prédit".replace(".", ","),
+            "status_label": "Sur trajectoire" if abs(real_loss - predicted_loss) < 1.5 else "Plus rapide" if real_loss > predicted_loss else "Plus lent",
+            "status_off": False,
+        },
+        "trajectory": {
+            "x_label": f"semaines depuis J1 ({fmt_date_fr(start)})",
+            "y_unit": "kg",
+            "y_min": 73,
+            "y_max": 87,
+            "points": pts,
+            "ideal": ideal,
+            "target": {"value": 75, "label": "asymptote 75 kg"},
+            "tolerance": 0.8,
+        },
+        "table": schedule_rows,
+        "method": [
+            {"heading": "Sémaglutide 2.4 mg", "body": "Wegovy = sémaglutide injectable hebdomadaire (Novo Nordisk). Agoniste GLP-1, supprime l'appétit central et ralentit la vidange gastrique. Titration 5 paliers sur 16 semaines pour limiter les effets digestifs."},
+            {"heading": "Modèle de référence STEP-1", "body": "Trajectoire idéale = fit Gompertz sur la cohorte sémaglutide 2.4 mg du trial STEP-1 (Wilding et al., NEJM 2021). Asymptote 75 kg, time-constant 22 semaines, exposant 1,4. Le coefficient kcal/kg utilisé pour estimer le déficit énergétique est 6 500 (Hall 2008/2011), pas le 7 700 générique."},
+            {"heading": "Effets indésirables typiques", "body": "Nausées (44 %), diarrhée (32 %), constipation (24 %), vomissements (24 %). Pic au changement de dose, baisse en 2 à 3 semaines. Si persistant: titration ralentie d'1 palier."},
+        ],
+        "cross_link": {"label": "Voir signal Réponse Wegovy", "href": "/#wegovy_response"},
+    }
+
+
 def build_pillar_detail_recovery(hc_records: list[dict], today: date) -> dict | None:
     """Sleep + HRV from Health Connect. Returns placeholder until APK installed."""
     sleep_pts = _sleep_minutes_per_day(hc_records, today, 30)
@@ -966,6 +1034,7 @@ def main() -> None:
     recovery_detail = build_pillar_detail_recovery(hc_records, today)
     if recovery_detail:
         pillar_detail["recovery"] = recovery_detail
+    pillar_detail["wegovy"] = build_detail_wegovy(measurements, today)
 
     payload: dict[str, Any] = {
         "today": today.isoformat(),

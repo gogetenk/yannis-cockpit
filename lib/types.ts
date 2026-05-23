@@ -79,6 +79,11 @@ export type PillarChart =
 
 export type PillarKey = "composition" | "activity" | "cardio" | "recovery";
 
+// Extended set of detail pages. Wegovy is not a "pillar" per se (it shows
+// as a banner on the home), but users may want to drill into the full
+// titration plan + STEP-1 methodology.
+export type DetailKey = PillarKey | "wegovy";
+
 export interface DetailTrajectory {
   // Long-form trajectory (12–36 months). x: months from start, y: metric value.
   x_label: string;           // e.g. "12 mois"
@@ -141,5 +146,5 @@ export interface CockpitSnapshot {
   signals: Signal[];
   bio_age: BioAge;
   pillars: PillarTile[];
-  pillar_detail?: Partial<Record<PillarKey, PillarDetail>>;
+  pillar_detail?: Partial<Record<DetailKey, PillarDetail>>;
 }

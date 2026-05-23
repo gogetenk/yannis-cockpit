@@ -6,17 +6,17 @@ import { DetailTrajectory } from "@/components/cockpit/detail/DetailTrajectory";
 import { MeasurementsTable } from "@/components/cockpit/detail/MeasurementsTable";
 import { MethodCard } from "@/components/cockpit/detail/MethodCard";
 import { SubTrajectories } from "@/components/cockpit/detail/SubTrajectories";
-import type { PillarKey } from "@/lib/types";
+import type { DetailKey } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
-const VALID_KEYS: PillarKey[] = ["composition", "activity", "cardio", "recovery"];
+const VALID_KEYS: DetailKey[] = ["composition", "activity", "cardio", "recovery", "wegovy"];
 
 export default async function DetailPage({ params }: { params: Promise<{ key: string }> }) {
   const { key } = await params;
-  if (!VALID_KEYS.includes(key as PillarKey)) notFound();
+  if (!VALID_KEYS.includes(key as DetailKey)) notFound();
   const { data } = await readCockpitSnapshot();
-  const detail = data.pillar_detail?.[key as PillarKey];
+  const detail = data.pillar_detail?.[key as DetailKey];
   if (!detail) {
     return (
       <>
