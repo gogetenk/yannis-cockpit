@@ -1,0 +1,1117 @@
+@import "tailwindcss";
+
+    /* =====================================================================
+       Cockpit Yannis — "Sage Cabinet" high-fi static mockup
+       Tokens follow DESIGN.md.  Production target fonts: GT America / Söhne;
+       free fallback: Plus Jakarta Sans + Outfit.  Inter is explicitly banned.
+       ===================================================================== */
+
+    :root {
+      /* Color tokens (DESIGN.md frontmatter, OKLCH canonical) */
+      --deep-sage:        oklch(50% 0.08  150);
+      --deep-sage-floor:  oklch(42% 0.08  150);  /* deeper for chart bg */
+      --sage-wash:        oklch(68% 0.06  150);
+      --ambre-brule:      oklch(70% 0.13   75);
+      --warm-cream:       oklch(96% 0.005 150);
+      --warm-cream-rest:  oklch(93% 0.008 150);
+      --warm-cream-edge:  oklch(89% 0.01  150);
+      --sage-ink:         oklch(22% 0.02  150);
+      --sage-ash:         oklch(55% 0.015 150);
+      --sage-mist:        oklch(88% 0.01  150);
+      --cream-on-sage:    oklch(97% 0.005 150);
+      --cream-on-sage-soft: oklch(82% 0.015 150);
+
+      /* Typography */
+      --font-display: "Outfit", "GT America", "Söhne", "Plus Jakarta Sans", system-ui, sans-serif;
+      --font-body:    "Plus Jakarta Sans", "GT America", "Söhne", system-ui, sans-serif;
+
+      /* Rhythm */
+      --pad-screen: 20px;
+      --gap-tile:   12px;
+      --rounded-tile: 16px;
+      --rounded-banner: 12px;
+
+      color-scheme: light;
+    }
+
+    [data-theme="dark"] {
+      --deep-sage:        oklch(32% 0.06  150);
+      --deep-sage-floor:  oklch(24% 0.05  150);
+      --sage-wash:        oklch(48% 0.06  150);
+      --ambre-brule:      oklch(70% 0.13   75);
+      --warm-cream:       oklch(18% 0.012 150);
+      --warm-cream-rest:  oklch(22% 0.014 150);
+      --warm-cream-edge:  oklch(28% 0.014 150);
+      --sage-ink:         oklch(94% 0.005 150);
+      --sage-ash:         oklch(70% 0.01  150);
+      --sage-mist:        oklch(35% 0.015 150);
+      --cream-on-sage:    oklch(94% 0.006 150);
+      --cream-on-sage-soft: oklch(76% 0.018 150);
+      color-scheme: dark;
+    }
+
+    /* ---------- Reset (minimal, no kitchen-sink) ---------- */
+    *,
+    *::before,
+    *::after { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; }
+    button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
+    a { color: inherit; text-decoration: none; }
+
+    /* ---------- Body shell ---------- */
+    html {
+      background: var(--warm-cream);
+      min-height: 100%;
+    }
+    body {
+      /* Mobile default: fill the viewport — no max-width.
+         The previous 390px cap was the source of the cream margins
+         on phones wider than 390px (almost all of them). max-width
+         kicks in only at the tablet breakpoint and above. */
+      width: 100%;
+      margin: 0;
+      min-height: 100vh;
+      font-family: var(--font-body);
+      font-feature-settings: "tnum" 1, "ss01" 1, "cv11" 1;
+      font-size: 15px;
+      line-height: 1.45;
+      color: var(--sage-ink);
+      background: var(--warm-cream);
+      -webkit-font-smoothing: antialiased;
+      text-rendering: optimizeLegibility;
+    }
+
+
+    /* ---------- Labels (universal small-caps style) ---------- */
+    .label {
+      font-size: 11px;
+      font-weight: 500;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--cream-on-sage-soft);
+    }
+    .label--ink {
+      color: var(--sage-ash);
+    }
+
+    /* ===========================================================
+       APP HEADER  (deep sage, 56px)
+       =========================================================== */
+    header.app {
+      background: var(--deep-sage);
+      color: var(--cream-on-sage);
+      height: 56px;
+      padding: 0 var(--pad-screen);
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      align-items: center;
+      gap: 18px;
+    }
+    header.app .date {
+      font-family: var(--font-body);
+      font-size: 12px;
+      font-weight: 500;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--cream-on-sage-soft);
+    }
+    header.app .theme-toggle {
+      justify-self: end;
+      width: 44px;
+      height: 44px;
+      display: grid;
+      place-items: center;
+      color: var(--cream-on-sage-soft);
+      border-radius: 999px;
+      transition: background 200ms cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    header.app .theme-toggle:hover,
+    header.app .theme-toggle:focus-visible {
+      background: oklch(from var(--cream-on-sage) l c h / 0.08);
+      color: var(--cream-on-sage);
+      outline: none;
+    }
+    header.app .chat {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--cream-on-sage);
+      padding: 8px 12px;
+      border-radius: 999px;
+      background: oklch(from var(--cream-on-sage) l c h / 0.10);
+      transition: background 200ms cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    header.app .chat:hover,
+    header.app .chat:focus-visible {
+      background: oklch(from var(--cream-on-sage) l c h / 0.18);
+      outline: none;
+    }
+    header.app .chat svg {
+      width: 14px; height: 14px;
+    }
+
+    /* ===========================================================
+       HERO  (deep sage panel)
+       Three stacked blocks with real breathing room:
+         1. .hero-head     — label + figure + delta on clean sage
+         2. .chart-wrap    — full-width trajectory chart
+         3. .hero-foot     — ETA chip with hairline divider
+       =========================================================== */
+    section.hero {
+      background: var(--deep-sage);
+      color: var(--cream-on-sage);
+      padding: 0;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .hero-head {
+      padding: 26px 22px 18px;
+    }
+    .hero-head .label {
+      display: block;
+      font-size: 11px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--cream-on-sage-soft);
+    }
+    /* Hero status — the primary signal.  Categorical word, no number. */
+    .hero-head .status {
+      font-family: var(--font-display);
+      font-size: clamp(40px, 9vw, 56px);
+      font-weight: 300;
+      line-height: 1.02;
+      letter-spacing: -0.015em;
+      margin: 10px 0 6px;
+      color: var(--cream-on-sage);
+    }
+    .hero-head .status.deviation { color: var(--ambre-brule); }
+    .hero-head .delta {
+      font-size: 14px;
+      color: var(--cream-on-sage-soft);
+      font-variant-numeric: tabular-nums;
+      margin: 0 0 4px;
+    }
+    .hero-head .figure {
+      font-family: var(--font-display);
+      font-size: 17px;
+      font-weight: 400;
+      color: var(--cream-on-sage-soft);
+      font-variant-numeric: tabular-nums;
+      margin: 0;
+    }
+
+    .chart-wrap {
+      position: relative;
+      margin: 0;
+      width: 100%;
+      cursor: crosshair;
+      touch-action: none;
+    }
+    .chart-wrap svg.trajectory {
+      display: block;
+      width: 100%;
+      height: clamp(220px, 52vw, 300px);
+    }
+
+    .hero-foot {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      padding: 14px 22px 22px;
+      border-top: 1px solid oklch(96% 0.005 150 / 0.10);
+      margin-top: 6px;
+    }
+    .hero-foot .eta-left {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .hero-foot .eta-label {
+      font-size: 11px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--cream-on-sage-soft);
+    }
+    .hero-foot .eta-date {
+      font-family: var(--font-display);
+      font-size: 17px;
+      font-weight: 400;
+      color: var(--cream-on-sage);
+      font-variant-numeric: tabular-nums;
+    }
+    .hero-foot .scope {
+      font-size: 11px;
+      color: var(--cream-on-sage-soft);
+      letter-spacing: 0.04em;
+    }
+
+    /* shadcn-style tooltip card.  Hover-lift shadow is allowed per
+       DESIGN.md (shadows as a response to user input, never decoration). */
+    .chart-tooltip {
+      position: absolute;
+      top: 14px;
+      left: 0;
+      min-width: 170px;
+      padding: 10px 14px 12px;
+      background: var(--warm-cream);
+      color: var(--sage-ink);
+      border: 1px solid var(--sage-mist);
+      border-radius: 10px;
+      box-shadow: 0 4px 14px oklch(22% 0.02 150 / 0.10);
+      font-size: 12px;
+      line-height: 1.4;
+      pointer-events: none;
+      transition: opacity 120ms cubic-bezier(0.16, 1, 0.3, 1);
+      z-index: 5;
+    }
+    .chart-tooltip[hidden] {
+      display: block !important;
+      opacity: 0;
+      transform: translateY(-2px);
+    }
+    .chart-tooltip:not([hidden]) {
+      opacity: 1;
+      transform: translateY(0);
+    }
+    .chart-tooltip .tt-date {
+      font-weight: 500;
+      font-size: 11px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--sage-ash);
+      margin-bottom: 6px;
+      padding-bottom: 6px;
+      border-bottom: 1px solid var(--sage-mist);
+      font-variant-numeric: tabular-nums;
+    }
+    .chart-tooltip .tt-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 14px;
+      margin: 2px 0;
+    }
+    .chart-tooltip .tt-label {
+      font-size: 11px;
+      color: var(--sage-ash);
+    }
+    .chart-tooltip .tt-value {
+      font-family: var(--font-display);
+      font-size: 14px;
+      font-weight: 500;
+      font-variant-numeric: tabular-nums;
+      color: var(--sage-ink);
+    }
+    .chart-tooltip .tt-delta {
+      color: var(--deep-sage);
+    }
+    .chart-tooltip .tt-delta.off {
+      color: var(--ambre-brule);
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .chart-tooltip {
+        transition: none !important;
+        transform: none !important;
+      }
+    }
+    .hero-meta {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      margin-bottom: 4px;
+    }
+    .hero-meta .label {
+      color: var(--cream-on-sage-soft);
+    }
+    .hero-meta .scope {
+      font-size: 11px;
+      font-weight: 500;
+      letter-spacing: 0.04em;
+      color: var(--cream-on-sage-soft);
+    }
+    .hero-figure {
+      font-family: var(--font-display);
+      font-size: 56px;
+      font-weight: 300;
+      line-height: 1;
+      letter-spacing: -0.02em;
+      color: var(--cream-on-sage);
+      font-variant-numeric: tabular-nums;
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+    }
+    .hero-figure .unit {
+      font-size: 20px;
+      font-weight: 400;
+      color: var(--cream-on-sage-soft);
+      letter-spacing: 0;
+    }
+    .hero-delta {
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--cream-on-sage-soft);
+      margin-top: 6px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .hero-delta .dot {
+      width: 6px; height: 6px; border-radius: 999px;
+      background: var(--sage-wash);
+      display: inline-block;
+    }
+
+    /* (Old standalone svg.trajectory rule removed; the chart now lives
+       inside .chart-wrap which carries the layout, see above.) */
+
+    .hero-eta {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      font-size: 13px;
+      color: var(--cream-on-sage-soft);
+      margin-top: 6px;
+    }
+    .hero-eta .eta-figure {
+      font-family: var(--font-display);
+      font-weight: 400;
+      font-size: 15px;
+      color: var(--cream-on-sage);
+      font-variant-numeric: tabular-nums;
+    }
+
+    /* ===========================================================
+       WEGOVY BANNER  (cream rest, titration ladder)
+       Shows position on the dose-escalation ladder, not effect.
+       Effect is what the hero trajectory already shows.
+       =========================================================== */
+    aside.wegovy {
+      background: var(--warm-cream-rest);
+      margin: 16px var(--pad-screen) 0;
+      border-radius: var(--rounded-banner);
+      padding: 14px 16px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    /* ===========================================================
+       SIGNAUX — cross-source insights, list of dense rows.
+       Stays silent when everything is OK; surfaces drift early.
+       =========================================================== */
+    section.signals {
+      background: var(--warm-cream-rest);
+      margin: 16px var(--pad-screen) 0;
+      border-radius: var(--rounded-banner);
+      padding: 14px 16px 8px;
+    }
+    .signals-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      margin-bottom: 8px;
+    }
+    .signals-head h3 {
+      margin: 0;
+      font-size: 11px;
+      font-weight: 500;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--sage-ash);
+    }
+    .signals-window {
+      font-size: 11px;
+      color: var(--sage-ash);
+      font-variant-numeric: tabular-nums;
+    }
+    .signals-list {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+    }
+    .signal {
+      display: grid;
+      grid-template-columns: 10px 1fr auto 80px auto;
+      column-gap: 12px;
+      align-items: center;
+      padding: 12px 0;
+      border-top: 1px solid var(--sage-mist);
+    }
+    .signal:first-child { border-top: 0; }
+    .signal-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 999px;
+      background: var(--sage-wash);
+      display: inline-block;
+    }
+    .signal--watch .signal-dot { background: var(--ambre-brule); }
+    .signal-body {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      min-width: 0;
+    }
+    .signal-title {
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--sage-ink);
+    }
+    .signal-sub {
+      font-size: 11px;
+      color: var(--sage-ash);
+      font-variant-numeric: tabular-nums;
+    }
+    .signal-value {
+      font-family: var(--font-display);
+      font-size: 18px;
+      font-weight: 400;
+      color: var(--sage-ink);
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+    }
+    .signal-value .signal-unit {
+      font-size: 11px;
+      font-weight: 400;
+      color: var(--sage-ash);
+      margin-left: 3px;
+    }
+    .signal-spark {
+      display: block;
+      width: 80px;
+      height: 24px;
+    }
+    .signal-status {
+      font-size: 11px;
+      font-weight: 500;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: var(--sage-ash);
+      white-space: nowrap;
+    }
+    .signal--watch .signal-status { color: var(--ambre-brule); }
+
+    /* Compact mobile: drop sparkline and status word, keep dot + body + value. */
+    @media (max-width: 480px) {
+      .signal {
+        grid-template-columns: 10px 1fr auto;
+      }
+      .signal-spark,
+      .signal-status { display: none; }
+    }
+    .wegovy-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 10px;
+    }
+    .wegovy-top .label { color: var(--sage-ash); }
+    .wegovy-top .now {
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--sage-ink);
+      font-variant-numeric: tabular-nums;
+    }
+    .wegovy-top .now strong {
+      font-weight: 500;
+      color: var(--deep-sage);
+    }
+    .wegovy-ladder {
+      display: block;
+      width: 100%;
+      height: 44px;
+    }
+    .wegovy-foot {
+      font-size: 11px;
+      color: var(--sage-ash);
+      font-variant-numeric: tabular-nums;
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+    }
+    .wegovy-foot strong {
+      font-weight: 500;
+      color: var(--sage-ink);
+    }
+
+    /* ===========================================================
+       PILLAR TILES GRID
+       =========================================================== */
+    main.grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: var(--gap-tile);
+      padding: 16px var(--pad-screen) 4px;
+    }
+    .tile {
+      background: var(--warm-cream-rest);
+      border-radius: var(--rounded-tile);
+      padding: 14px 14px 12px;
+      min-height: 150px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      position: relative;
+      transition: background 180ms cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    .tile-chart {
+      flex: 1;
+      min-height: 70px;
+      margin-top: 4px;
+    }
+    .tile-chart svg {
+      display: block;
+      width: 100%;
+      height: 100%;
+      min-height: 70px;
+    }
+    .tile:hover,
+    .tile:focus-visible {
+      background: var(--warm-cream-edge);
+      outline: none;
+    }
+    .tile--wide {
+      grid-column: span 2;
+      min-height: auto;
+      /* Bio age tile uses its own layout (figure + sparkline row, then subages row);
+         override the compact 2-col grid that small tiles use. */
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      padding: 16px 16px 14px;
+    }
+    .tile--wide .tile-head {
+      grid-column: auto;
+      grid-row: auto;
+      width: 100%;
+    }
+    .tile--wide .subages { margin-top: 4px; }
+    /* Full-width trajectory chart at the bottom of the bio age tile.
+       Labels live in HTML (figcaption) so they never get stretched horizontally. */
+    .age-trajectory {
+      margin: 14px 0 0;
+      width: 100%;
+    }
+    .age-trajectory-chart {
+      position: relative;
+      width: 100%;
+    }
+    .age-trajectory-chart svg {
+      display: block;
+      width: 100%;
+      height: 64px;
+    }
+    .age-trajectory-baseline-label {
+      position: absolute;
+      right: 0;
+      top: 50%;
+      transform: translateY(-100%);
+      font-size: 11px;
+      font-weight: 500;
+      color: var(--sage-ash);
+      font-variant-numeric: tabular-nums;
+      background: var(--warm-cream-rest);
+      padding: 0 4px;
+    }
+    .age-trajectory-axis {
+      display: flex;
+      justify-content: space-between;
+      margin: 6px 0 0;
+      font-size: 11px;
+      font-weight: 500;
+      letter-spacing: 0.04em;
+      color: var(--sage-ash);
+      font-variant-numeric: tabular-nums;
+    }
+
+    .tile-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+    }
+    .tile-head .label,
+    .tile-head .meta { white-space: nowrap; }
+    .tile-head .label { color: var(--sage-ash); }
+    .tile-head .meta {
+      font-size: 11px;
+      color: var(--sage-ash);
+      font-variant-numeric: tabular-nums;
+    }
+
+    .tile-figure {
+      font-family: var(--font-display);
+      font-size: 26px;
+      font-weight: 400;
+      line-height: 1;
+      letter-spacing: -0.01em;
+      color: var(--sage-ink);
+      font-variant-numeric: tabular-nums;
+      display: flex;
+      align-items: baseline;
+      gap: 4px;
+      margin: 0;
+      white-space: nowrap;
+      min-width: 0;
+    }
+    .tile-figure .unit {
+      font-size: 12px;
+      font-weight: 400;
+      color: var(--sage-ash);
+      letter-spacing: 0;
+    }
+    /* Compact tiles drop the sub line and foot line — details live in drill-down. */
+    .tile-sub, .tile-foot { display: none; }
+
+    /* Puck progress bar */
+    .puck-bar {
+      position: relative;
+      height: 4px;
+      background: var(--sage-mist);
+      border-radius: 999px;
+      margin-top: 8px;
+    }
+    .puck-bar .target {
+      position: absolute;
+      top: -2px;
+      width: 2px;
+      height: 8px;
+      background: var(--sage-ash);
+      border-radius: 1px;
+    }
+    .puck-bar .puck {
+      position: absolute;
+      top: -2px;
+      width: 8px;
+      height: 8px;
+      background: var(--deep-sage);
+      border-radius: 999px;
+      transform: translateX(-50%);
+    }
+    .puck-bar .puck.off {
+      background: var(--ambre-brule);
+    }
+
+    /* Mini sparkline */
+    .spark {
+      display: block;
+      width: 100%;
+      height: 28px;
+      margin-top: 4px;
+    }
+
+    /* Composite age tile-wide — honest framing: 4 sub-ages visible */
+    .tile--wide .ages {
+      display: flex;
+      align-items: flex-end;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+    .tile--wide .ages .real {
+      font-family: var(--font-display);
+      font-size: 48px;
+      font-weight: 300;
+      letter-spacing: -0.02em;
+      line-height: 1;
+      color: var(--deep-sage);
+      font-variant-numeric: tabular-nums;
+    }
+    .tile--wide .ages .real.ambre { color: var(--ambre-brule); }
+    .tile--wide .ages .ambre { color: var(--ambre-brule); }
+    .tile--wide .ages-meta {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .tile--wide .ages-meta .ci {
+      font-family: var(--font-display);
+      font-size: 14px;
+      color: var(--sage-ash);
+      font-variant-numeric: tabular-nums;
+    }
+    .tile--wide .ages-meta .vs {
+      font-size: 12px;
+      color: var(--sage-ash);
+      font-variant-numeric: tabular-nums;
+    }
+    .tile--wide .ages-meta .vs strong {
+      font-weight: 500;
+      color: var(--sage-ink);
+    }
+    .tile--wide .ages .vs-inline {
+      font-family: var(--font-display);
+      font-size: 16px;
+      color: var(--sage-ash);
+      font-variant-numeric: tabular-nums;
+      align-self: flex-end;
+      padding-bottom: 4px;
+    }
+
+    /* Sub-ages — 4 bars, height ∝ age, label below, weight micro-label */
+    .subages {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 12px;
+      margin-top: 14px;
+    }
+    .subage {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+    }
+    .subage-bar {
+      position: relative;
+      width: 100%;
+      max-width: 56px;
+      height: 110px;
+      background: var(--sage-mist);
+      border-radius: 6px;
+      overflow: visible;
+    }
+    .subage-fill {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      background: var(--deep-sage);
+      border-radius: 6px;
+      transition: height 240ms cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    .subage-fill.off { background: var(--ambre-brule); }
+    .subage-chrono {
+      position: absolute;
+      left: -3px;
+      right: -3px;
+      top: 50%;   /* chrono 35 ≈ midpoint of 0-70 scale */
+      height: 1px;
+      background: var(--sage-ash);
+      opacity: 0.6;
+    }
+    .subage-val {
+      font-family: var(--font-display);
+      font-size: 17px;
+      font-weight: 400;
+      color: var(--sage-ink);
+      font-variant-numeric: tabular-nums;
+      margin-top: 4px;
+    }
+    .subage-val.off { color: var(--ambre-brule); }
+    .subage-val--status {
+      font-family: var(--font-body);
+      font-size: 11px;
+      font-weight: 500;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: var(--sage-ash);
+    }
+    .subage-status {
+      width: 100%;
+      max-width: 56px;
+      height: 72px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--sage-mist);
+      border-radius: 6px;
+      font-family: var(--font-display);
+      font-size: 22px;
+      font-weight: 400;
+      color: var(--deep-sage);
+      letter-spacing: -0.02em;
+    }
+    .subage-label {
+      font-size: 11px;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: var(--sage-ash);
+    }
+    .subage-w {
+      font-size: 10px;
+      color: var(--sage-ash);
+      font-variant-numeric: tabular-nums;
+      opacity: 0.7;
+    }
+
+    /* legacy ages-bar (kept harmless if any vestige). */
+    .tile--wide .ages .real-legacy .unit {
+      font-size: 16px;
+      color: var(--sage-ash);
+      font-weight: 400;
+    }
+    .tile--wide .ages .vs {
+      font-size: 13px;
+      color: var(--sage-ash);
+      font-variant-numeric: tabular-nums;
+    }
+    .tile--wide .ages .vs strong {
+      font-weight: 500;
+      color: var(--sage-ink);
+    }
+    .tile--wide .ages-bar {
+      flex: 1;
+      height: 4px;
+      background: var(--sage-mist);
+      border-radius: 999px;
+      position: relative;
+      margin-left: auto;
+      min-width: 80px;
+    }
+    .tile--wide .ages-bar .real-mark,
+    .tile--wide .ages-bar .chrono-mark {
+      position: absolute;
+      top: -3px;
+      width: 2px;
+      height: 10px;
+      border-radius: 1px;
+    }
+    .tile--wide .ages-bar .chrono-mark {
+      background: var(--sage-ash);
+    }
+    .tile--wide .ages-bar .real-mark {
+      background: var(--deep-sage);
+    }
+
+    /* ===========================================================
+       LONG-TERM MARKERS FOOTER
+       =========================================================== */
+    footer.long-term {
+      margin: 24px var(--pad-screen) 32px;
+      padding: 18px 0 0;
+      border-top: 1px solid var(--sage-mist);
+    }
+    footer.long-term .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      margin-bottom: 14px;
+    }
+    footer.long-term h3 {
+      font-size: 11px;
+      font-weight: 500;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--sage-ash);
+      margin: 0;
+    }
+    footer.long-term .next {
+      font-size: 11px;
+      color: var(--sage-ash);
+      font-variant-numeric: tabular-nums;
+    }
+    footer.long-term dl {
+      margin: 0;
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 12px;
+    }
+    footer.long-term .marker {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    footer.long-term dt {
+      font-size: 11px;
+      color: var(--sage-ash);
+      font-weight: 500;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+    footer.long-term dd {
+      margin: 0;
+      font-family: var(--font-display);
+      font-size: 18px;
+      font-weight: 400;
+      color: var(--sage-ink);
+      font-variant-numeric: tabular-nums;
+      letter-spacing: -0.01em;
+    }
+    footer.long-term .since {
+      font-size: 10px;
+      color: var(--sage-ash);
+      font-variant-numeric: tabular-nums;
+    }
+    footer.long-term .marker.flagged dd {
+      color: var(--ambre-brule);
+    }
+
+    /* ===========================================================
+       Accessibility & responsive
+       =========================================================== */
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        transition-duration: 0ms !important;
+        animation-duration: 0ms !important;
+      }
+    }
+
+    :focus-visible {
+      outline: 2px solid var(--deep-sage);
+      outline-offset: 2px;
+      border-radius: 6px;
+    }
+    header.app :focus-visible {
+      outline-color: var(--cream-on-sage);
+    }
+
+    /* Touch targets ≥ 44px (header buttons already are). */
+
+    /* =====================================================================
+       RESPONSIVE BREAKPOINTS
+       Mobile-first, not mobile-only.  Three lanes:
+         < 700px  → vertical mobile column (default rules above)
+         700-1023 → wider column, tiles breathe
+         ≥ 1024px → true desktop cockpit, 2-pane hero, 4-col tiles
+       ===================================================================== */
+
+    /* TABLET: widen column, keep vertical stack */
+    @media (min-width: 700px) {
+      body {
+        max-width: 640px;
+      }
+      section.hero {
+        padding: 24px 28px 32px;
+      }
+      .hero-figure {
+        font-size: 72px;
+      }
+      .chart-wrap svg.trajectory {
+        height: 240px;
+      }
+      aside.wegovy {
+        margin: 18px 28px 0;
+      }
+      main.grid {
+        padding: 18px 28px 6px;
+        gap: 14px;
+      }
+      footer.long-term {
+        margin: 24px 28px 36px;
+      }
+    }
+
+    /* DESKTOP: full cockpit, horizontal hero, 4-col tiles, 1080px container */
+    @media (min-width: 1024px) {
+      html {
+        background: var(--warm-cream);
+        padding: 0;
+      }
+      body {
+        max-width: 1080px;
+        margin: 0 auto;
+        background: var(--warm-cream);
+        border-radius: 0;
+        overflow: visible;
+        min-height: 100vh;
+      }
+
+      header.app {
+        height: 64px;
+        padding: 0 32px;
+      }
+
+      /* HERO desktop: 2-column composition — figures + ETA on the left, chart
+         fills the right.  Stops the "vast green wasteland" effect of stacking
+         a narrow curve under a left-aligned figure on a 1080px-wide panel. */
+      section.hero {
+        display: grid;
+        grid-template-columns: minmax(260px, 320px) 1fr;
+        grid-template-areas:
+          "head   chart"
+          "foot   chart";
+        grid-template-rows: auto 1fr;
+        align-items: stretch;
+        min-height: 380px;
+      }
+      .hero-head {
+        grid-area: head;
+        padding: 36px 28px 16px 40px;
+      }
+      .chart-wrap {
+        grid-area: chart;
+        align-self: stretch;
+        display: flex;
+        align-items: center;
+        padding: 24px 32px 24px 0;
+      }
+      .chart-wrap svg.trajectory {
+        height: 340px;
+      }
+      .hero-foot {
+        grid-area: foot;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 4px;
+        padding: 0 28px 36px 40px;
+        margin-top: 0;
+        border-top: 0;
+      }
+      .hero-foot .scope {
+        margin-top: 8px;
+      }
+
+      /* WEGOVY: wider banner */
+      aside.wegovy {
+        margin: 24px 36px 0;
+        padding: 16px 22px 18px;
+        display: grid;
+        grid-template-columns: minmax(220px, 280px) 1fr auto;
+        grid-template-rows: auto;
+        align-items: center;
+        gap: 28px;
+      }
+      .wegovy-top {
+        grid-column: 1;
+        flex-direction: column;
+        align-items: start;
+        gap: 4px;
+      }
+      .wegovy-ladder {
+        grid-column: 2;
+        height: 48px;
+        max-width: 380px;
+      }
+      .wegovy-foot {
+        grid-column: 3;
+        flex-direction: column;
+        align-items: end;
+        gap: 4px;
+        text-align: right;
+      }
+
+      /* TILES: 4 columns at desktop, wide tile spans all 4 */
+      main.grid {
+        grid-template-columns: repeat(4, 1fr);
+        padding: 24px 36px 8px;
+        gap: 16px;
+      }
+      .tile {
+        min-height: 108px;
+      }
+      .tile--wide {
+        grid-column: span 4;
+        min-height: auto;
+      }
+
+      footer.long-term {
+        margin: 24px 36px 48px;
+      }
+      footer.long-term dl {
+        grid-template-columns: repeat(3, minmax(0, 280px));
+        justify-content: start;
+        gap: 48px;
+      }
+    }
+
+    /* EXTRA WIDE: cap and keep proportions */
+    @media (min-width: 1440px) {
+      body {
+        max-width: 1180px;
+      }
+    }
+

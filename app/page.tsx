@@ -1,0 +1,26 @@
+import { readCockpitSnapshot } from "@/lib/cockpit-data";
+import { AppHeader } from "@/components/cockpit/AppHeader";
+import { Hero } from "@/components/cockpit/Hero";
+import { WegovyBanner } from "@/components/cockpit/WegovyBanner";
+import { SignalsSection } from "@/components/cockpit/SignalsSection";
+import { BioAgeTile } from "@/components/cockpit/BioAgeTile";
+import { PillarTile } from "@/components/cockpit/PillarTile";
+
+export const dynamic = "force-dynamic";
+
+export default async function Page() {
+  const { data } = await readCockpitSnapshot();
+
+  return (
+    <>
+      <AppHeader today={data.today} />
+      <Hero hero={data.hero} />
+      <WegovyBanner wegovy={data.wegovy} />
+      <SignalsSection signals={data.signals} />
+      <main className="grid" aria-label="Piliers santé">
+        <BioAgeTile bioAge={data.bio_age} />
+        {data.pillars.map(p => <PillarTile key={p.key} pillar={p} />)}
+      </main>
+    </>
+  );
+}

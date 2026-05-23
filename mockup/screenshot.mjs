@@ -14,7 +14,7 @@ const target = process.argv[2] || path.join(__dirname, "aujourd-hui.html");
 const outDir = path.join(__dirname, "shots");
 fs.mkdirSync(outDir, { recursive: true });
 
-const url = pathToFileURL(target).href;
+const url = /^https?:\/\//.test(target) ? target : pathToFileURL(target).href;
 
 const viewports = [
   { name: "mobile-390",  width: 390,  height: 844  },

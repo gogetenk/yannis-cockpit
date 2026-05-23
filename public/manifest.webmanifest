@@ -1,0 +1,10 @@
+{
+  "name": "Cockpit Yannis",
+  "short_name": "Cockpit",
+  "description": "Cockpit santé personnel.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f5f3ee",
+  "theme_color": "#5e7a64",
+  "orientation": "portrait"
+}
