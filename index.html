@@ -753,15 +753,44 @@
         padding: 0 32px;
       }
 
-      /* HERO desktop: wider padding around head/foot blocks, taller chart. */
+      /* HERO desktop: 2-column composition — figures + ETA on the left, chart
+         fills the right.  Stops the "vast green wasteland" effect of stacking
+         a narrow curve under a left-aligned figure on a 1080px-wide panel. */
+      section.hero {
+        display: grid;
+        grid-template-columns: minmax(260px, 320px) 1fr;
+        grid-template-areas:
+          "head   chart"
+          "foot   chart";
+        grid-template-rows: auto 1fr;
+        align-items: stretch;
+        min-height: 380px;
+      }
       .hero-head {
-        padding: 36px 40px 22px;
+        grid-area: head;
+        padding: 36px 28px 16px 40px;
+      }
+      .chart-wrap {
+        grid-area: chart;
+        align-self: stretch;
+        display: flex;
+        align-items: center;
+        padding: 24px 32px 24px 0;
       }
       .chart-wrap svg.trajectory {
-        height: clamp(280px, 32vw, 360px);
+        height: 340px;
       }
       .hero-foot {
-        padding: 18px 40px 28px;
+        grid-area: foot;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 4px;
+        padding: 0 28px 36px 40px;
+        margin-top: 0;
+        border-top: 0;
+      }
+      .hero-foot .scope {
+        margin-top: 8px;
       }
 
       /* WEGOVY: wider banner */
@@ -1105,8 +1134,7 @@
     </svg>
 
     <div class="wegovy-foot">
-      <span>palier 2 / 5</span>
-      <span>prochaine titration · <strong>1,0 mg</strong> dans 4 sem.</span>
+      <span>prochaine titration · <strong>1,0 mg</strong> dans 2 sem.</span>
     </div>
   </aside>
 
