@@ -1,0 +1,37 @@
+name: Build cockpit snapshot
+
+# Recomputes cockpit_snapshot.payload from the raw tables. Runs:
+#   - hourly to catch any new Withings webhook / cron data
+#   - after every successful Yazio or Withings ingest (workflow_run trigger)
+#   - manually
+
+on:
+  schedule:
+    - cron: "37 * * * *"
+  workflow_run:
+    workflows: ["Ingest Yazio", "Ingest Withings"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      today:
+        description: "Override snapshot_date (ISO, defaults to today UTC)"
+        default: ""
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: ingest/snapshot/requirements.txt
+      - run: pip install -r ingest/snapshot/requirements.txt
+      - env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          TODAY: ${{ github.event.inputs.today }}
+        run: python ingest/snapshot/build_snapshot.py
