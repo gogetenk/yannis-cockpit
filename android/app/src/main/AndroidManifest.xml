@@ -27,7 +27,7 @@
     <application
         android:label="Cockpit Sync"
         android:icon="@android:drawable/ic_menu_compass"
-        android:theme="@style/Theme.Material3.DayNight.NoActionBar"
+        android:theme="@style/Theme.CockpitSync"
         android:allowBackup="false"
         android:supportsRtl="true">
 
