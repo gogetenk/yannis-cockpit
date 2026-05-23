@@ -93,26 +93,57 @@ BF 24,3 % → interp : 50 + (24,3-22,7)/(24,6-22,7)*10 ≈ ~58 ans
 - L1 isolé bas avec L2-L4 normaux = artefact probable (déformation focale, ostéophyte, Schmorl, scoliose, mauvais labelling vertébral). Workup : radio latérale ou VFA.
 - Diagnostic basé sur la moyenne des vertèbres valides + meilleur hip site, PAS le worst single vertebra.
 
-**Sortie pour le composite** : statut catégoriel, pas un âge.
-- `optimal` (Z ≥ −1,0 partout) → contribution âge = chrono (neutre)
-- `monitor` (−2 < Z < −1) → contribution âge = chrono (neutre, flag clinique)
-- `below_expected_for_age` (Z ≤ −2) → contribution +5 ans flat + flag rouge clinique
+**Sortie pour le composite** : Z-score pondéré multi-sites → âge en années.
 
-**User réel (extraction PDF DEXA Sujatha Rajkumar)** :
-- L1 T/Z −2,2 (BMD 0,902) — isolé, artefact probable
-- L2 −1,2, L3 −0,8, L4 −1,1 → mean L2-L4 Z = **−1,0**
-- Fémur G col Z −0,7, total Z −0,7
-- Fémur D col Z −0,4, total Z −0,7
-- Radius 33% G Z +0,6, D Z +0,9
-- **Corps entier Z = +1,0** (au-dessus moyenne)
+**Pondération sites** (basée sur significance fracture-mortalité, FRAX + Browner 1996 + Marshall 1996) :
 
-Statut : `monitor` (L2-L4 à −1,0, fémur normal, corps entier au-dessus moyenne, L1 à confirmer par radio latérale).
-Contribution composite : **35 ans** (= chrono, neutre).
-Workup : radio latérale L1 + 25-OH-vit-D, Ca, PTH, testostérone, TSH, sérologie cœliaque (par prudence).
+| Site | Poids | Justification |
+|---|---|---|
+| Col fémoral (moy G+D) | 0,30 | Hip fracture = HR mortality le plus élevé |
+| Hanche totale (moy G+D) | 0,20 | Site composite robuste |
+| Rachis lombaire (mean valid vertebrae) | 0,25 | Trabécullaire, sensible aux changements précoces |
+| Corps entier | 0,15 | BMD globale |
+| Radius 33% | 0,10 | Cortical de référence |
+
+```
+Z_pondéré = Σ (poids_i × Z_i)
+bone_age = age_chrono + max(0, -Z_pondéré) × 4
+```
+
+Le coefficient 4 ans/SD vient de la relation BMD-mortality (Browner 1996, HR ~1.4 par −1 SD ≈ shift biologique ~4 ans).
+
+**Flag clinique parallèle** (déclenche workup, n'affecte pas l'âge directement) :
+- `optimal` : Z_pondéré ≥ +0,5 ET tous sites Z ≥ −1
+- `monitor` : aucun Z site ≤ −2 OU vertèbre isolée exclue
+- `below_expected` : Z site ≤ −2 confirmé après workup (ISCD : male <50 = "below expected range for age", PAS osteoporosis sans fracture)
+
+**User réel (extraction PDF DEXA Dr Rajkumar mars 2026)** :
+
+| Site | Z mesuré | Poids | Contribution |
+|---|---|---|---|
+| L1 | −2,2 | EXCLU (ISCD: diff >1 SD vs adjacent) | 0 |
+| L2 | −1,2 | inclus dans mean L2-L4 | |
+| L3 | −0,8 | inclus | |
+| L4 | −1,1 | inclus | |
+| **Mean L2-L4** | **−1,03** | 0,25 | −0,258 |
+| Col fémoral G | −0,7 | | |
+| Col fémoral D | −0,4 | | |
+| **Mean col fémoral** | **−0,55** | 0,30 | −0,165 |
+| Hanche totale G | −0,7 | | |
+| Hanche totale D | −0,7 | | |
+| **Mean hanche totale** | **−0,70** | 0,20 | −0,140 |
+| Corps entier | +1,0 | 0,15 | +0,150 |
+| Radius 33% (moy G+D) | +0,75 | 0,10 | +0,075 |
+
+**Z_pondéré = −0,338 SD**
+**bone_age = 35 + 0,338 × 4 = 36,4 ans** (arrondi à **36**)
+
+Flag clinique : `monitor` (L1 à confirmer par radio latérale).
+Workup recommandé : VFA ou radio latérale lombaire + 25-OH-vit-D / Ca / PTH / testostérone / TSH.
 
 σ₀ = 1,5 ans. λ = 730 jours.
 
-**Update** : si la radio confirme L1 artefact → status passe à `optimal`. Si Z futur sur L2-L4 ≤ −2 → status `below_expected` + +5 ans.
+**Update rule** : si radio confirme L1 artefact (fracture ancienne, hémangiome, Schmorl) → L1 reste exclu, Z_pondéré inchangé. Si L1 confirmé comme vraie ostéopénie focale → réintégrer L1 dans le mean lombaire → Z_pondéré ≈ −0,41 → bone_age ≈ 37.
 
 ## 2. Composite
 
@@ -151,9 +182,9 @@ Données réelles mai 2026 (DEXA Dr Rajkumar + Withings + Huawei) :
 | Sang (PhenoAge) | 34 | 0,34 | ApoB 109 + CRP basse → légère accélération |
 | Cardio (VO2max 46, RHR 58) | 28 | 0,28 | VO2max ~p65 mâle 35 ans |
 | Composition (BF 24,3 p50 + ALMI 9,43 p75 + VAT 120cm² élevé) | 36 | 0,20 | ALMI fort, VAT pénalise |
-| Squelette (statut `monitor`) | 35 | 0,17 | Os normaux, L1 isolé à confirmer |
+| Squelette (Z_pondéré −0,34 SD) | 36 | 0,17 | Os normaux (L1 exclu), corps entier Z+1,0 |
 
-**Composite pondéré** : 34×0,34 + 28×0,28 + 36×0,20 + 35×0,17 = 11,56 + 7,84 + 7,20 + 5,95 = **32,55 ans**.
+**Composite pondéré** : 34×0,34 + 28×0,28 + 36×0,20 + 36×0,17 = 11,56 + 7,84 + 7,20 + 6,12 = **32,72 ans**.
 
 Avec CI ±2,2 ans → **33 ans [31 – 35]**.
 
