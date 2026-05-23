@@ -1,0 +1,53 @@
+name: Build Android APK
+
+# Builds the Health Cockpit Sync companion app from android/. The debug APK
+# is uploaded as a workflow artifact so it can be sideloaded onto the user's
+# Android phone (no Play Store, no signing key).
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - "android/**"
+      - ".github/workflows/android-apk.yml"
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: android
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: |
+            platforms;android-35
+            build-tools;35.0.0
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Assemble debug APK
+        run: gradle --no-daemon --stacktrace assembleDebug
+
+      - name: Locate APK
+        id: locate
+        run: |
+          set -e
+          apk=$(find app/build/outputs/apk/debug -name "*.apk" | head -1)
+          echo "apk=$apk"
+          echo "apk=$apk" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cockpit-sync-debug-apk
+          path: android/${{ steps.locate.outputs.apk }}
+          retention-days: 14
