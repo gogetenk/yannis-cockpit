@@ -408,6 +408,111 @@
       flex-direction: column;
       gap: 10px;
     }
+
+    /* ===========================================================
+       SIGNAUX — cross-source insights, list of dense rows.
+       Stays silent when everything is OK; surfaces drift early.
+       =========================================================== */
+    section.signals {
+      background: var(--warm-cream-rest);
+      margin: 16px var(--pad-screen) 0;
+      border-radius: var(--rounded-banner);
+      padding: 14px 16px 8px;
+    }
+    .signals-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      margin-bottom: 8px;
+    }
+    .signals-head h3 {
+      margin: 0;
+      font-size: 11px;
+      font-weight: 500;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--sage-ash);
+    }
+    .signals-window {
+      font-size: 11px;
+      color: var(--sage-ash);
+      font-variant-numeric: tabular-nums;
+    }
+    .signals-list {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+    }
+    .signal {
+      display: grid;
+      grid-template-columns: 10px 1fr auto 80px auto;
+      column-gap: 12px;
+      align-items: center;
+      padding: 12px 0;
+      border-top: 1px solid var(--sage-mist);
+    }
+    .signal:first-child { border-top: 0; }
+    .signal-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 999px;
+      background: var(--sage-wash);
+      display: inline-block;
+    }
+    .signal--watch .signal-dot { background: var(--ambre-brule); }
+    .signal-body {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      min-width: 0;
+    }
+    .signal-title {
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--sage-ink);
+    }
+    .signal-sub {
+      font-size: 11px;
+      color: var(--sage-ash);
+      font-variant-numeric: tabular-nums;
+    }
+    .signal-value {
+      font-family: var(--font-display);
+      font-size: 18px;
+      font-weight: 400;
+      color: var(--sage-ink);
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+    }
+    .signal-value .signal-unit {
+      font-size: 11px;
+      font-weight: 400;
+      color: var(--sage-ash);
+      margin-left: 3px;
+    }
+    .signal-spark {
+      display: block;
+      width: 80px;
+      height: 24px;
+    }
+    .signal-status {
+      font-size: 11px;
+      font-weight: 500;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: var(--sage-ash);
+      white-space: nowrap;
+    }
+    .signal--watch .signal-status { color: var(--ambre-brule); }
+
+    /* Compact mobile: drop sparkline and status word, keep dot + body + value. */
+    @media (max-width: 480px) {
+      .signal {
+        grid-template-columns: 10px 1fr auto;
+      }
+      .signal-spark,
+      .signal-status { display: none; }
+    }
     .wegovy-top {
       display: flex;
       justify-content: space-between;
@@ -1303,6 +1408,114 @@
       <span>prochaine titration · <strong>1,0 mg</strong> dans 2 sem.</span>
     </div>
   </aside>
+
+  <!-- ========================== SIGNAUX ==========================
+       Cross-source insights, not raw KPIs.  Rolling windows reveal drift
+       before it becomes irreversible.  Status only surfaces when there's
+       something to say; silent / OK signals stay quiet by design.
+
+         1. TDEE effectif        — Yazio kcal 14j ÷ Withings perte 14j
+         2. Protéines régulières — Yazio prot 28j, % jours cible atteinte
+         3. Alcool               — Yazio alcool 28j vs 28j précédents
+         4. Dette sommeil × HRV  — Huawei sommeil 7j × HRV nocturne 7j
+         5. Réponse Wegovy       — Withings réel vs Gompertz prédit (STEP-1)
+   -->
+  <section class="signals" aria-labelledby="signals-heading">
+    <header class="signals-head">
+      <h3 id="signals-heading">Signaux</h3>
+      <span class="signals-window">fenêtre 28 j</span>
+    </header>
+
+    <ol class="signals-list">
+      <li class="signal">
+        <span class="signal-dot" aria-label="ok"></span>
+        <div class="signal-body">
+          <span class="signal-title">TDEE effectif</span>
+          <span class="signal-sub">déficit −450 vs cible Wegovy</span>
+        </div>
+        <span class="signal-value">2 350<span class="signal-unit">kcal</span></span>
+        <svg class="signal-spark" viewBox="0 0 80 24" preserveAspectRatio="none" aria-hidden="true">
+          <path d="M 2 14 L 14 16 L 26 12 L 38 14 L 50 11 L 62 13 L 78 12"
+                fill="none" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"
+                vector-effect="non-scaling-stroke" style="stroke: var(--deep-sage)"/>
+        </svg>
+        <span class="signal-status">on track</span>
+      </li>
+
+      <li class="signal signal--watch">
+        <span class="signal-dot" aria-label="à surveiller"></span>
+        <div class="signal-body">
+          <span class="signal-title">Protéines régulières</span>
+          <span class="signal-sub">≥ 1,4 g/kg · jours train −0,3 g/kg</span>
+        </div>
+        <span class="signal-value">22<span class="signal-unit">/28 j</span></span>
+        <svg class="signal-spark" viewBox="0 0 80 24" preserveAspectRatio="none" aria-hidden="true">
+          <g style="fill: var(--ambre-brule); opacity: 0.85">
+            <rect x="2"  y="6"  width="3" height="16"/>
+            <rect x="8"  y="4"  width="3" height="18"/>
+            <rect x="14" y="14" width="3" height="8" opacity="0.4"/>
+            <rect x="20" y="5"  width="3" height="17"/>
+            <rect x="26" y="3"  width="3" height="19"/>
+            <rect x="32" y="13" width="3" height="9" opacity="0.4"/>
+            <rect x="38" y="6"  width="3" height="16"/>
+            <rect x="44" y="4"  width="3" height="18"/>
+            <rect x="50" y="12" width="3" height="10" opacity="0.4"/>
+            <rect x="56" y="5"  width="3" height="17"/>
+            <rect x="62" y="3"  width="3" height="19"/>
+            <rect x="68" y="13" width="3" height="9" opacity="0.4"/>
+            <rect x="74" y="5"  width="3" height="17"/>
+          </g>
+        </svg>
+        <span class="signal-status">à surveiller</span>
+      </li>
+
+      <li class="signal">
+        <span class="signal-dot" aria-label="ok"></span>
+        <div class="signal-body">
+          <span class="signal-title">Alcool</span>
+          <span class="signal-sub">stable vs 28 j précédents · limite 14 u</span>
+        </div>
+        <span class="signal-value">9<span class="signal-unit">u/sem</span></span>
+        <svg class="signal-spark" viewBox="0 0 80 24" preserveAspectRatio="none" aria-hidden="true">
+          <path d="M 2 12 L 14 14 L 26 11 L 38 13 L 50 12 L 62 13 L 78 12"
+                fill="none" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"
+                vector-effect="non-scaling-stroke" style="stroke: var(--deep-sage)"/>
+        </svg>
+        <span class="signal-status">stable</span>
+      </li>
+
+      <li class="signal signal--watch">
+        <span class="signal-dot" aria-label="à surveiller"></span>
+        <div class="signal-body">
+          <span class="signal-title">Dette sommeil × HRV</span>
+          <span class="signal-sub">HRV 48 → 42 ms · réduire charge train</span>
+        </div>
+        <span class="signal-value">−3 h 20<span class="signal-unit">/ 7 j</span></span>
+        <svg class="signal-spark" viewBox="0 0 80 24" preserveAspectRatio="none" aria-hidden="true">
+          <path d="M 2 8 L 14 10 L 26 12 L 38 13 L 50 15 L 62 17 L 78 18"
+                fill="none" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"
+                vector-effect="non-scaling-stroke" style="stroke: var(--ambre-brule)"/>
+        </svg>
+        <span class="signal-status">à surveiller</span>
+      </li>
+
+      <li class="signal">
+        <span class="signal-dot" aria-label="ok"></span>
+        <div class="signal-body">
+          <span class="signal-title">Réponse Wegovy</span>
+          <span class="signal-sub">−2,4 kg réel vs −2,0 prédit STEP-1</span>
+        </div>
+        <span class="signal-value">1,20<span class="signal-unit">×</span></span>
+        <svg class="signal-spark" viewBox="0 0 80 24" preserveAspectRatio="none" aria-hidden="true">
+          <path d="M 2 18 L 14 17 L 26 15 L 38 13 L 50 11 L 62 9 L 78 7"
+                fill="none" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"
+                vector-effect="non-scaling-stroke" style="stroke: var(--deep-sage)"/>
+          <circle cx="78" cy="7" r="2" style="fill: var(--deep-sage)"/>
+        </svg>
+        <span class="signal-status">top quartile</span>
+      </li>
+    </ol>
+  </section>
 
   <!-- ========================== PILLAR TILES ========================== -->
   <main class="grid" aria-label="Piliers santé">
