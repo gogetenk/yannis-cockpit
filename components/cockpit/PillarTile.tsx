@@ -1,3 +1,4 @@
+import Link from "next/link";
 import type { PillarTile as Pillar } from "@/lib/types";
 
 interface Props { pillar: Pillar }
@@ -5,7 +6,7 @@ interface Props { pillar: Pillar }
 export function PillarTile({ pillar }: Props) {
   const id = `t-${pillar.key}`;
   return (
-    <article className="tile" aria-labelledby={id}>
+    <Link href={`/detail/${pillar.key}`} className="tile tile--link" aria-labelledby={id}>
       <header className="tile-head">
         <span className="label" id={id}>{pillar.label}</span>
         <span className="meta">{pillar.meta}</span>
@@ -14,7 +15,7 @@ export function PillarTile({ pillar }: Props) {
       <div className="tile-chart">
         {renderChart(pillar)}
       </div>
-    </article>
+    </Link>
   );
 }
 

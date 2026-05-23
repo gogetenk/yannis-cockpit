@@ -77,6 +77,63 @@ export type PillarChart =
   | { kind: "area"; points: [number, number][]; target_label: string; target_y: number }
   | { kind: "bars"; values: number[]; target_label?: string; target_y?: number; dim_indices?: number[]; ambre_indices?: number[]; target_band?: { y: number; h: number } };
 
+export type PillarKey = "composition" | "activity" | "cardio" | "recovery";
+
+export interface DetailTrajectory {
+  // Long-form trajectory (12–36 months). x: months from start, y: metric value.
+  x_label: string;           // e.g. "12 mois"
+  y_unit: string;            // e.g. "% MG"
+  y_min: number;
+  y_max: number;
+  points: { date: string; value: number }[];
+  ideal?: { date: string; value: number }[];
+  target?: { value: number; label: string };
+  tolerance?: number;        // ± band
+}
+
+export interface MeasurementRow {
+  date: string;              // ISO
+  value: number | string;
+  unit: string;
+  delta?: string;            // e.g. "−0,2"
+  off?: boolean;
+}
+
+export interface SubTrajectory {
+  // Smaller, secondary line chart inside a detail page (e.g. HR repos, HRV).
+  key: string;
+  label: string;
+  unit: string;
+  current: string;
+  trend_label: string;       // e.g. "−4 / 90 j"
+  points: { date: string; value: number }[];
+  target?: { value: number; label: string };
+  ambre?: boolean;
+}
+
+export interface MethodSection {
+  heading: string;
+  body: string;              // markdown-light: plain paragraphs, splitter on \n\n
+}
+
+export interface PillarDetail {
+  key: PillarKey;
+  title: string;             // e.g. "Composition corporelle"
+  meta: string;              // e.g. "Withings · dernière mesure 21 avr 2026"
+  hero: {
+    figure: string;
+    unit: string;
+    delta_label?: string;    // e.g. "−4,2 pts vs janvier"
+    status_label: string;    // Conforme / Dérive mineure / ...
+    status_off?: boolean;
+  };
+  trajectory: DetailTrajectory;
+  table: MeasurementRow[];
+  subs?: SubTrajectory[];    // optional 1–3 sub-line charts (e.g. Cardio)
+  method: MethodSection[];
+  cross_link?: { label: string; href: string };
+}
+
 export interface CockpitSnapshot {
   today: string; // ISO date
   hero: WeightHero;
@@ -84,4 +141,5 @@ export interface CockpitSnapshot {
   signals: Signal[];
   bio_age: BioAge;
   pillars: PillarTile[];
+  pillar_detail?: Partial<Record<PillarKey, PillarDetail>>;
 }

@@ -1115,3 +1115,274 @@
       }
     }
 
+
+/* =====================================================================
+   DETAIL PAGES — /detail/<key>
+   Same Sage Cabinet vocabulary; cream paper with hairline structure.
+   ===================================================================== */
+
+.tile--link {
+  text-decoration: none;
+  color: inherit;
+  cursor: pointer;
+}
+.tile--link:focus-visible {
+  outline: 2px solid var(--deep-sage);
+  outline-offset: 2px;
+}
+
+header.detail-header {
+  background: var(--deep-sage);
+  color: var(--cream-on-sage);
+  padding: 18px 22px 22px;
+  display: grid;
+  grid-template-columns: 44px 1fr;
+  gap: 12px;
+  align-items: center;
+}
+header.detail-header .detail-back {
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  color: var(--cream-on-sage-soft);
+  transition: background 180ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+header.detail-header .detail-back:hover,
+header.detail-header .detail-back:focus-visible {
+  background: oklch(from var(--cream-on-sage) l c h / 0.10);
+  color: var(--cream-on-sage);
+  outline: none;
+}
+.detail-head-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.detail-title {
+  font-family: var(--font-display);
+  font-size: 22px;
+  font-weight: 400;
+  letter-spacing: -0.01em;
+  color: var(--cream-on-sage);
+  margin: 0;
+  line-height: 1.1;
+}
+.detail-meta {
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  color: var(--cream-on-sage-soft);
+  text-transform: uppercase;
+  font-variant-numeric: tabular-nums;
+}
+
+.detail-body {
+  padding: 20px var(--pad-screen) 40px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+.detail-empty {
+  padding: 28px var(--pad-screen);
+  color: var(--sage-ash);
+}
+
+/* Detail hero — single big figure, status word above, delta in between. */
+.detail-hero {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.detail-hero-status {
+  font-family: var(--font-display);
+  font-size: clamp(28px, 6vw, 36px);
+  font-weight: 300;
+  letter-spacing: -0.01em;
+  color: var(--deep-sage);
+  margin: 0;
+  line-height: 1.05;
+}
+.detail-hero-status.deviation { color: var(--ambre-brule); }
+.detail-hero-delta {
+  font-size: 13px;
+  color: var(--sage-ash);
+  font-variant-numeric: tabular-nums;
+  margin: 0;
+}
+.detail-hero-figure {
+  font-family: var(--font-display);
+  font-size: 44px;
+  font-weight: 300;
+  letter-spacing: -0.02em;
+  color: var(--sage-ink);
+  font-variant-numeric: tabular-nums;
+  margin: 4px 0 0;
+  line-height: 1;
+}
+.detail-hero-figure .unit {
+  font-size: 16px;
+  color: var(--sage-ash);
+  font-weight: 400;
+  letter-spacing: 0;
+}
+
+/* Trajectory chart — full width, cream paper background. */
+.detail-trajectory {
+  margin: 0;
+  background: var(--warm-cream-rest);
+  border-radius: var(--rounded-tile);
+  padding: 16px 12px 12px;
+}
+.detail-trajectory svg {
+  display: block;
+  width: 100%;
+  height: clamp(220px, 50vw, 320px);
+}
+
+/* Sub-trajectories grid (e.g. Cardio: VO2max / HR repos / HRV). */
+.subs {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+}
+@media (min-width: 700px) {
+  .subs { grid-template-columns: repeat(3, 1fr); }
+}
+.sub {
+  background: var(--warm-cream-rest);
+  border-radius: var(--rounded-tile);
+  padding: 14px 16px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.sub-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+}
+.sub-trend {
+  font-size: 11px;
+  color: var(--sage-ash);
+  font-variant-numeric: tabular-nums;
+}
+.sub-figure {
+  font-family: var(--font-display);
+  font-size: 26px;
+  font-weight: 400;
+  line-height: 1;
+  color: var(--sage-ink);
+  font-variant-numeric: tabular-nums;
+  margin: 4px 0 6px;
+  letter-spacing: -0.01em;
+}
+.sub-figure .unit {
+  font-size: 12px;
+  color: var(--sage-ash);
+  font-weight: 400;
+}
+.sub svg {
+  width: 100%;
+  height: 64px;
+  display: block;
+}
+
+/* Measurements table — dense, tabular, hairline rules. */
+.section-label {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--sage-ash);
+  font-weight: 500;
+  margin: 0 0 10px;
+}
+.measurements table {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+.measurements thead th {
+  text-align: left;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--sage-ash);
+  font-weight: 500;
+  padding: 0 0 8px;
+  border-bottom: 1px solid var(--sage-mist);
+}
+.measurements th.num,
+.measurements td.num {
+  text-align: right;
+}
+.measurements tbody td {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--sage-mist);
+  font-size: 14px;
+  color: var(--sage-ink);
+}
+.measurements tbody tr:last-child td {
+  border-bottom: 0;
+}
+.measurements td .unit {
+  color: var(--sage-ash);
+  font-size: 11px;
+  margin-left: 2px;
+}
+.measurements td.delta {
+  color: var(--sage-ash);
+}
+.measurements td.delta.off {
+  color: var(--ambre-brule);
+}
+
+/* Method card — paragraphs, references. */
+.method {
+  background: var(--warm-cream-rest);
+  border-radius: var(--rounded-tile);
+  padding: 16px 18px 14px;
+}
+.method-body { display: flex; flex-direction: column; gap: 14px; }
+.method-section h3 {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--sage-ink);
+  margin: 0 0 6px;
+  letter-spacing: 0;
+}
+.method-section p {
+  margin: 0 0 6px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--sage-ink);
+  max-width: 68ch;
+}
+.method-section p:last-child { margin-bottom: 0; }
+.method-cross {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 12px;
+  padding: 6px 12px;
+  font-size: 12px;
+  color: var(--deep-sage);
+  background: oklch(from var(--deep-sage) l c h / 0.08);
+  border-radius: 999px;
+  font-weight: 500;
+  transition: background 180ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.method-cross:hover { background: oklch(from var(--deep-sage) l c h / 0.14); }
+
+/* Detail page: tighter on desktop, max width matches main page. */
+@media (min-width: 700px) {
+  header.detail-header { padding: 22px 28px 26px; }
+  .detail-body { padding: 24px 28px 60px; gap: 28px; }
+  .detail-title { font-size: 26px; }
+}
+@media (min-width: 1024px) {
+  header.detail-header { padding: 26px 36px 30px; }
+  .detail-body { padding: 28px 36px 80px; gap: 32px; }
+}

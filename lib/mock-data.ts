@@ -1,4 +1,8 @@
 import type { CockpitSnapshot } from "./types";
+import { COMPOSITION_DETAIL } from "./pillar-detail/composition";
+import { ACTIVITY_DETAIL } from "./pillar-detail/activity";
+import { CARDIO_DETAIL } from "./pillar-detail/cardio";
+import { RECOVERY_DETAIL } from "./pillar-detail/recovery";
 
 // Frozen snapshot mirroring the static mockup (mockup/index.html), used as
 // fallback when Supabase env vars are not configured. Lets the app run on
@@ -191,4 +195,10 @@ export const MOCK_SNAPSHOT: CockpitSnapshot = {
       },
     },
   ],
+  pillar_detail: {
+    composition: COMPOSITION_DETAIL,
+    activity: ACTIVITY_DETAIL,
+    cardio: CARDIO_DETAIL,
+    recovery: RECOVERY_DETAIL,
+  },
 };
