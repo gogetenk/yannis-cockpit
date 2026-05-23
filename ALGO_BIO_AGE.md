@@ -81,20 +81,38 @@ BF 24,3 % → interp : 50 + (24,3-22,7)/(24,6-22,7)*10 ≈ ~58 ans
 
 σ₀ = 3,5 ans. λ_body = 14 j (Withings daily) / λ_DEXA = 730 j (rare).
 
-### D. Âge squelette — T-score worst-site (poids 0,17)
+### D. Squelette — statut ISCD, PAS un âge (poids 0,17)
 
-Input : DEXA annuel. T-score worst-site drives.
+**Correction majeure** : pour un mâle < 50 ans, ISCD 2019 (Adult Position 4.2) impose le Z-score (pas le T-score) et la catégorie est **"within / below expected range for age"**, jamais "ostéopénie" ni "ostéoporose" en l'absence de fracture de fragilité.
 
-```
-skeletal_age = 30 + max(0, -T_score) * ~24 ans / SD
-```
+**Aucune méthodologie peer-reviewed ne convertit la densité osseuse adulte en "âge squelettique en années".** Levine, KDM, Horvath excluent tous BMD de leurs formules d'âge biologique. Ne JAMAIS sortir un nombre d'années.
 
-User L1 T = −2,2 → site skeletal age = 30 + 2,2×24 = **~83 ans** (ostéopénie sévère L1).
-Autres sites Z normaux → systemic ~50 ans si on moyenne, mais policy : **worst-site drives** (fracture HR Marshall 1996, HR ~2 par −1 SD).
+**Règles ISCD 2019** :
+- Sites : moyenne L1-L4, fémur total, col fémoral, radius 33% (si nécessaire).
+- Exclure une vertèbre si elle diffère d'une vertèbre adjacente de > 1 SD (Section 3.2.3).
+- L1 isolé bas avec L2-L4 normaux = artefact probable (déformation focale, ostéophyte, Schmorl, scoliose, mauvais labelling vertébral). Workup : radio latérale ou VFA.
+- Diagnostic basé sur la moyenne des vertèbres valides + meilleur hip site, PAS le worst single vertebra.
 
-Décision conservatrice : utiliser worst-site (L1) → 83 ans pour ce sous-âge.
+**Sortie pour le composite** : statut catégoriel, pas un âge.
+- `optimal` (Z ≥ −1,0 partout) → contribution âge = chrono (neutre)
+- `monitor` (−2 < Z < −1) → contribution âge = chrono (neutre, flag clinique)
+- `below_expected_for_age` (Z ≤ −2) → contribution +5 ans flat + flag rouge clinique
+
+**User réel (extraction PDF DEXA Sujatha Rajkumar)** :
+- L1 T/Z −2,2 (BMD 0,902) — isolé, artefact probable
+- L2 −1,2, L3 −0,8, L4 −1,1 → mean L2-L4 Z = **−1,0**
+- Fémur G col Z −0,7, total Z −0,7
+- Fémur D col Z −0,4, total Z −0,7
+- Radius 33% G Z +0,6, D Z +0,9
+- **Corps entier Z = +1,0** (au-dessus moyenne)
+
+Statut : `monitor` (L2-L4 à −1,0, fémur normal, corps entier au-dessus moyenne, L1 à confirmer par radio latérale).
+Contribution composite : **35 ans** (= chrono, neutre).
+Workup : radio latérale L1 + 25-OH-vit-D, Ca, PTH, testostérone, TSH, sérologie cœliaque (par prudence).
 
 σ₀ = 1,5 ans. λ = 730 jours.
+
+**Update** : si la radio confirme L1 artefact → status passe à `optimal`. Si Z futur sur L2-L4 ≤ −2 → status `below_expected` + +5 ans.
 
 ## 2. Composite
 
@@ -124,27 +142,30 @@ Propriétés :
 - Sous-âges auditables pour drill-down
 - Intervalle de confiance calibré
 
-## 3. Calcul actuel utilisateur
+## 3. Calcul actuel utilisateur (révisé)
 
-Estimations conservatrices avec les données réelles (mai 2026) :
+Données réelles mai 2026 (DEXA Dr Rajkumar + Withings + Huawei) :
 
 | Sous-âge | Valeur | Poids | Justification |
 |---|---|---|---|
 | Sang (PhenoAge) | 34 | 0,34 | ApoB 109 + CRP basse → légère accélération |
 | Cardio (VO2max 46, RHR 58) | 28 | 0,28 | VO2max ~p65 mâle 35 ans |
-| Composition (ALMI 9.42, BF 24.3) | 42 | 0,20 | BF élevé pénalise malgré bon ALMI |
-| Squelette (T L1 −2,2 worst-site) | 83 | 0,17 | Ostéopénie L1 isolée |
+| Composition (BF 24,3 p50 + ALMI 9,43 p75 + VAT 120cm² élevé) | 36 | 0,20 | ALMI fort, VAT pénalise |
+| Squelette (statut `monitor`) | 35 | 0,17 | Os normaux, L1 isolé à confirmer |
 
-**Composite pondéré simple** : 34×0,34 + 28×0,28 + 42×0,20 + 83×0,17 = 11,56 + 7,84 + 8,40 + 14,11 = **41,9 ans**.
+**Composite pondéré** : 34×0,34 + 28×0,28 + 36×0,20 + 35×0,17 = 11,56 + 7,84 + 7,20 + 5,95 = **32,55 ans**.
 
-Avec CI ±3,1 ans → **42 ans [39 – 45]**.
+Avec CI ±2,2 ans → **33 ans [31 – 35]**.
 
-Vs chrono 35 → **+7 ans** d'accélération biologique. Driver : os L1.
+Vs chrono 35 → **−2 ans** (légèrement plus jeune).
 
-**Action lever par priorité (HR × modifiabilité 3 mois)** :
-1. Ostéopénie L1 → charge axiale (squats lourds, deadlifts), vitamine D, K2, magnésium, contrôle DEXA dans 9 mois
-2. ApoB 109 → ré-évaluer après 90 j sport intensifié ; envisager bempédoïque si > 90 mg/dL au prochain bilan
-3. BF 24,3 % → continuer Wegovy ladder + déficit modéré (−400 kcal/j max pour préserver ALMI)
+**Driver réel = VAT viscéral 120 cm²** (seuil cardiométabolique 100 cm²), pas les os. ApoB 109 secondaire.
+
+**Action lever par priorité** :
+1. **VAT viscéral** → continuer Wegovy ladder (déjà en cours) + cardio régulier (zone 2 + HIIT 2×/sem) ; cible VAT < 100 cm² au DEXA suivant
+2. **ApoB 109** → ré-évaluer après 90 j ; envisager intervention si > 90 mg/dL persistant après normalisation du poids
+3. **L1 anomalie** → radio latérale lombaire pour exclure déformation focale ; pas de traitement osseux à ce stade
+4. **VO2max 46 → 48+** → maintenir progression actuelle, ne pas saboter avec déficit calorique excessif (préserver ALMI 9,43 actuel)
 
 ## 4. Update rules
 

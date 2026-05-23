@@ -664,6 +664,29 @@
       margin-top: 4px;
     }
     .subage-val.off { color: var(--ambre-brule); }
+    .subage-val--status {
+      font-family: var(--font-body);
+      font-size: 11px;
+      font-weight: 500;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: var(--sage-ash);
+    }
+    .subage-status {
+      width: 100%;
+      max-width: 56px;
+      height: 72px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--sage-mist);
+      border-radius: 6px;
+      font-family: var(--font-display);
+      font-size: 22px;
+      font-weight: 400;
+      color: var(--deep-sage);
+      letter-spacing: -0.02em;
+    }
     .subage-label {
       font-size: 11px;
       letter-spacing: 0.04em;
@@ -1428,14 +1451,16 @@
       </header>
 
       <div class="ages">
-        <span class="real ambre">42<span class="unit"> ans</span></span>
+        <span class="real">33<span class="unit"> ans</span></span>
         <div class="ages-meta">
-          <span class="ci">[39 – 45]</span>
-          <span class="vs">vs chrono <strong>35</strong> · <strong class="ambre">+7 ans</strong></span>
+          <span class="ci">[31 – 35]</span>
+          <span class="vs">vs chrono <strong>35</strong> · <strong>−2 ans</strong></span>
         </div>
       </div>
 
-      <!-- Sub-ages bar chart: each bar = one sub-age, height ∝ age, width ∝ weight -->
+      <!-- Sub-ages: Cardio 28 / Sang 34 / Composition 36 / Os : OK (statut, pas un âge).
+           Bone deliberately shown as a status badge per ISCD 2019 — pas de "skeletal
+           age in years" pour un mâle < 50 ans. -->
       <div class="subages" aria-label="4 sous-âges biologiques">
         <div class="subage">
           <div class="subage-bar">
@@ -1457,27 +1482,26 @@
         </div>
         <div class="subage">
           <div class="subage-bar">
-            <span class="subage-fill off" style="height: 62%"></span>
+            <span class="subage-fill" style="height: 53%"></span>
             <span class="subage-chrono"></span>
           </div>
-          <span class="subage-val off">42</span>
+          <span class="subage-val">36</span>
           <span class="subage-label">Composition</span>
           <span class="subage-w">0,20</span>
         </div>
         <div class="subage">
-          <div class="subage-bar">
-            <span class="subage-fill off" style="height: 100%"></span>
-            <span class="subage-chrono"></span>
+          <div class="subage-status" title="Z-score L2-L4 = -1.0, fémur normal, corps entier Z +1.0. L1 isolé à confirmer par radio.">
+            OK
           </div>
-          <span class="subage-val off">83</span>
+          <span class="subage-val subage-val--status">monitor</span>
           <span class="subage-label">Squelette</span>
           <span class="subage-w">0,17</span>
         </div>
       </div>
 
       <p class="tile-foot">
-        <span>driver · ostéopénie L1 (T −2,2)</span>
-        <span>levier · charge axiale + vit D/K2</span>
+        <span>driver · VAT 120 cm² (cardiométabolique)</span>
+        <span>levier · Wegovy ladder + cardio</span>
       </p>
     </article>
 
@@ -1492,9 +1516,9 @@
 
     <dl>
       <div class="marker flagged">
-        <dt>T-score L1</dt>
-        <dd>−2,2</dd>
-        <span class="since">DEXA · il y a 38 j</span>
+        <dt>VAT (viscéral)</dt>
+        <dd>120<span style="font-size:11px;color:var(--sage-ash);font-family:var(--font-body)"> cm²</span></dd>
+        <span class="since">DEXA · il y a 38 j · seuil risque 100</span>
       </div>
       <div class="marker">
         <dt>ApoB</dt>
