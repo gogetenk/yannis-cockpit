@@ -61,14 +61,12 @@ TYPE_LABELS: dict[int, tuple[str, str]] = {
     139: ("afib_ppg", ""),
     155: ("vascular_age", "year"),
     167: ("nerve_health_score", "uS"),
-    # Empirical mapping (confirmed against real Body Scan data):
-    # 168 returned no data on our account — kept in request list to probe.
-    # 169 = extracellular water (~28kg, matches ECW range; NOT ICW as some
-    #       community wrappers claim).
-    # 170 = visceral fat score 0-12 (value ~3 fits the score scale; NOT
-    #       intracellular water which would be ~25kg).
-    168: ("type_168", ""),
-    169: ("extracellular_water", "kg"),
+    # Empirical confirmation (Body Scan, 38 measurements):
+    # 168 (~19kg) + 169 (~29kg) = 77 hydration total (~48kg). Per ICW > ECW
+    # convention, 168 = extracellular, 169 = intracellular.
+    # 170 (~3) is a 0-12 score, matches visceral fat.
+    168: ("extracellular_water", "kg"),
+    169: ("intracellular_water", "kg"),
     170: ("visceral_fat_score", ""),
     174: ("fat_mass_segment", "kg"),
     175: ("muscle_mass_segment", "kg"),
