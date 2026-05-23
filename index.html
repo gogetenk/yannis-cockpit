@@ -456,24 +456,23 @@
       background: var(--warm-cream-rest);
       border-radius: var(--rounded-tile);
       padding: 14px 14px 12px;
-      min-height: 92px;
-      display: grid;
-      grid-template-columns: 1fr 64px;
-      grid-template-rows: auto auto;
-      column-gap: 12px;
-      align-items: center;
+      min-height: 150px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
       position: relative;
       transition: background 180ms cubic-bezier(0.16, 1, 0.3, 1);
     }
     .tile-chart {
-      grid-column: 2;
-      grid-row: 1 / span 2;
-      align-self: center;
+      flex: 1;
+      min-height: 70px;
+      margin-top: 4px;
     }
     .tile-chart svg {
       display: block;
       width: 100%;
-      height: 36px;
+      height: 100%;
+      min-height: 70px;
     }
     .tile:hover,
     .tile:focus-visible {
@@ -505,8 +504,6 @@
     }
 
     .tile-head {
-      grid-column: 1;
-      grid-row: 1;
       display: flex;
       justify-content: space-between;
       align-items: center;
@@ -523,10 +520,8 @@
     }
 
     .tile-figure {
-      grid-column: 1;
-      grid-row: 2;
       font-family: var(--font-display);
-      font-size: 22px;
+      font-size: 26px;
       font-weight: 400;
       line-height: 1;
       letter-spacing: -0.01em;
@@ -535,7 +530,7 @@
       display: flex;
       align-items: baseline;
       gap: 4px;
-      margin: 4px 0 0;
+      margin: 0;
       white-space: nowrap;
       min-width: 0;
     }
@@ -649,7 +644,7 @@
       position: relative;
       width: 100%;
       max-width: 56px;
-      height: 72px;
+      height: 110px;
       background: var(--sage-mist);
       border-radius: 6px;
       overflow: visible;
@@ -1355,11 +1350,18 @@
       </header>
       <p class="tile-figure">24,3<span class="unit">% MG</span></p>
       <div class="tile-chart">
-        <svg viewBox="0 0 64 36" preserveAspectRatio="none" role="img" aria-label="BF% descente 12 mois">
-          <path d="M 2 6 L 16 10 L 30 16 L 44 22 L 58 26"
-                fill="none" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"
+        <svg viewBox="0 0 200 80" preserveAspectRatio="none" role="img"
+             aria-label="BF% 12 mois 28→24, cible 16">
+          <line x1="0" y1="72" x2="200" y2="72" stroke-width="0.6"
+                stroke-dasharray="2 3" opacity="0.5" style="stroke: var(--sage-ash)"/>
+          <text x="196" y="68" text-anchor="end" font-size="9"
+                style="fill: var(--sage-ash)" font-variant-numeric="tabular-nums">cible 16</text>
+          <path d="M 8 12 L 50 22 L 92 36 L 134 48 L 176 56 L 192 60 L 192 78 L 8 78 Z"
+                opacity="0.12" style="fill: var(--deep-sage)"/>
+          <path d="M 8 12 L 50 22 L 92 36 L 134 48 L 176 56 L 192 60"
+                fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"
                 style="stroke: var(--deep-sage)"/>
-          <circle cx="58" cy="26" r="2" style="fill: var(--deep-sage)"/>
+          <circle cx="192" cy="60" r="2.6" style="fill: var(--deep-sage)"/>
         </svg>
       </div>
     </article>
@@ -1372,15 +1374,19 @@
       </header>
       <p class="tile-figure">8 247<span class="unit">pas</span></p>
       <div class="tile-chart">
-        <svg viewBox="0 0 64 36" preserveAspectRatio="none" role="img" aria-label="Pas 7 jours">
+        <svg viewBox="0 0 200 80" preserveAspectRatio="none" role="img" aria-label="Pas 7 jours, cible 10k">
+          <line x1="0" y1="18" x2="200" y2="18" stroke-width="0.6"
+                stroke-dasharray="2 3" opacity="0.5" style="stroke: var(--sage-ash)"/>
+          <text x="196" y="14" text-anchor="end" font-size="9"
+                style="fill: var(--sage-ash)" font-variant-numeric="tabular-nums">10 k</text>
           <g style="fill: var(--deep-sage)">
-            <rect x="2"  y="8"  width="6" height="26" rx="1"/>
-            <rect x="11" y="4"  width="6" height="30" rx="1"/>
-            <rect x="20" y="14" width="6" height="20" rx="1"/>
-            <rect x="29" y="3"  width="6" height="31" rx="1"/>
-            <rect x="38" y="18" width="6" height="16" rx="1" opacity="0.55"/>
-            <rect x="47" y="7"  width="6" height="27" rx="1"/>
-            <rect x="56" y="15" width="6" height="19" rx="1" opacity="0.55"/>
+            <rect x="6"   y="16" width="20" height="56" rx="2"/>
+            <rect x="34"  y="8"  width="20" height="64" rx="2"/>
+            <rect x="62"  y="26" width="20" height="46" rx="2"/>
+            <rect x="90"  y="6"  width="20" height="66" rx="2"/>
+            <rect x="118" y="32" width="20" height="40" rx="2" opacity="0.55"/>
+            <rect x="146" y="14" width="20" height="58" rx="2"/>
+            <rect x="174" y="28" width="20" height="44" rx="2" opacity="0.55"/>
           </g>
         </svg>
       </div>
@@ -1394,11 +1400,18 @@
       </header>
       <p class="tile-figure">46<span class="unit">ml/kg</span></p>
       <div class="tile-chart">
-        <svg viewBox="0 0 64 36" preserveAspectRatio="none" role="img" aria-label="VO2max 12 sem">
-          <path d="M 2 28 L 14 26 L 26 22 L 38 18 L 50 14 L 62 11"
-                fill="none" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"
+        <svg viewBox="0 0 200 80" preserveAspectRatio="none" role="img"
+             aria-label="VO2max 12 sem 41→46, cible 55">
+          <line x1="0" y1="10" x2="200" y2="10" stroke-width="0.6"
+                stroke-dasharray="2 3" opacity="0.5" style="stroke: var(--sage-ash)"/>
+          <text x="196" y="22" text-anchor="end" font-size="9"
+                style="fill: var(--sage-ash)" font-variant-numeric="tabular-nums">cible 55</text>
+          <path d="M 8 60 L 38 56 L 68 48 L 98 40 L 128 32 L 158 26 L 192 22 L 192 78 L 8 78 Z"
+                opacity="0.12" style="fill: var(--deep-sage)"/>
+          <path d="M 8 60 L 38 56 L 68 48 L 98 40 L 128 32 L 158 26 L 192 22"
+                fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"
                 style="stroke: var(--deep-sage)"/>
-          <circle cx="62" cy="11" r="2" style="fill: var(--deep-sage)"/>
+          <circle cx="192" cy="22" r="2.6" style="fill: var(--deep-sage)"/>
         </svg>
       </div>
     </article>
@@ -1411,15 +1424,20 @@
       </header>
       <p class="tile-figure">6 h 42<span class="unit">moy.</span></p>
       <div class="tile-chart">
-        <svg viewBox="0 0 64 36" preserveAspectRatio="none" role="img" aria-label="Sommeil 7 jours">
+        <svg viewBox="0 0 200 80" preserveAspectRatio="none" role="img"
+             aria-label="Sommeil 7 j, cible 7-8h">
+          <rect x="0" y="14" width="200" height="14" opacity="0.10"
+                style="fill: var(--deep-sage)"/>
+          <text x="196" y="11" text-anchor="end" font-size="9"
+                style="fill: var(--sage-ash)" font-variant-numeric="tabular-nums">7–8 h</text>
           <g>
-            <rect x="2"  y="16" width="6" height="18" rx="1" style="fill: var(--ambre-brule); opacity: 0.85"/>
-            <rect x="11" y="11" width="6" height="23" rx="1" style="fill: var(--deep-sage)"/>
-            <rect x="20" y="20" width="6" height="14" rx="1" style="fill: var(--ambre-brule); opacity: 0.85"/>
-            <rect x="29" y="9"  width="6" height="25" rx="1" style="fill: var(--deep-sage)"/>
-            <rect x="38" y="14" width="6" height="20" rx="1" style="fill: var(--ambre-brule); opacity: 0.85"/>
-            <rect x="47" y="18" width="6" height="16" rx="1" style="fill: var(--ambre-brule); opacity: 0.85"/>
-            <rect x="56" y="14" width="6" height="20" rx="1" style="fill: var(--ambre-brule); opacity: 0.85"/>
+            <rect x="6"   y="36" width="20" height="36" rx="2" style="fill: var(--ambre-brule); opacity: 0.85"/>
+            <rect x="34"  y="24" width="20" height="48" rx="2" style="fill: var(--deep-sage)"/>
+            <rect x="62"  y="44" width="20" height="28" rx="2" style="fill: var(--ambre-brule); opacity: 0.85"/>
+            <rect x="90"  y="20" width="20" height="52" rx="2" style="fill: var(--deep-sage)"/>
+            <rect x="118" y="32" width="20" height="40" rx="2" style="fill: var(--ambre-brule); opacity: 0.85"/>
+            <rect x="146" y="40" width="20" height="32" rx="2" style="fill: var(--ambre-brule); opacity: 0.85"/>
+            <rect x="174" y="32" width="20" height="40" rx="2" style="fill: var(--ambre-brule); opacity: 0.85"/>
           </g>
         </svg>
       </div>
