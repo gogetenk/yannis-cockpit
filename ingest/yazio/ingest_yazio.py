@@ -159,12 +159,15 @@ def parse_days(out_dir: Path, weight_by_date: dict[str, float]) -> tuple[list[di
         )
         for meal_name in MEAL_KEYS:
             m = (meal_map.get(meal_name) or {}).get("nutrients") or {}
-            if not m:
+            kcal = m.get(NUTRIENT_KEY["energy"])
+            # Skip empty meal slots — Yazio always returns 4 buckets, most are
+            # zero. The day total in yazio_day already captures everything.
+            if not kcal:
                 continue
             meals.append({
                 "date": iso_date,
                 "meal": meal_name,
-                "kcal": m.get(NUTRIENT_KEY["energy"]),
+                "kcal": kcal,
                 "protein_g": m.get(NUTRIENT_KEY["protein"]),
                 "carb_g": m.get(NUTRIENT_KEY["carb"]),
                 "fat_g": m.get(NUTRIENT_KEY["fat"]),
