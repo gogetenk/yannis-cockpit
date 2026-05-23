@@ -17,7 +17,16 @@ create unique index if not exists cockpit_snapshot_date_uniq
 create index if not exists cockpit_snapshot_created_at_idx
   on public.cockpit_snapshot (created_at desc);
 
--- RLS: locked down. Service role bypasses RLS, which is what the Next.js API
--- route uses. No anon access; the cockpit is single-user behind the user's
--- own deployment.
+-- RLS posture: single-user private cockpit, deployment behind Tailscale per
+-- PRODUCT.md. Snapshot is the user's own dashboard data — not sensitive in
+-- the traditional sense. RLS is enabled, with a permissive read policy so
+-- the publishable (anon) key works from server-side rendering. Writes go
+-- through Supabase's authenticated admin context (dashboard or CLI).
 alter table public.cockpit_snapshot enable row level security;
+
+drop policy if exists "cockpit_snapshot read" on public.cockpit_snapshot;
+create policy "cockpit_snapshot read"
+  on public.cockpit_snapshot
+  for select
+  to anon, authenticated
+  using (true);
