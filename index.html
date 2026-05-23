@@ -1065,11 +1065,11 @@
         <span class="tt-value tt-ideal">83,6 kg</span>
       </div>
       <div class="tt-row">
-        <span class="tt-label">projetée</span>
+        <span class="tt-label tt-label-actual">mesurée</span>
         <span class="tt-value tt-actual">83,9 kg</span>
       </div>
       <div class="tt-row">
-        <span class="tt-label">écart</span>
+        <span class="tt-label tt-label-delta">écart</span>
         <span class="tt-value tt-delta on">+0,3 kg</span>
       </div>
     </div>
@@ -1292,6 +1292,8 @@
     const ttIdeal  = tooltip.querySelector(".tt-ideal");
     const ttActual = tooltip.querySelector(".tt-actual");
     const ttDelta  = tooltip.querySelector(".tt-delta");
+    const ttLabelActual = tooltip.querySelector(".tt-label-actual");
+    const ttLabelDelta  = tooltip.querySelector(".tt-label-delta");
 
     if (!wrap || !svg || !capture) return;
 
@@ -1415,6 +1417,11 @@
       ttActual.textContent = fmtKg(projected);
       ttDelta.textContent = fmtDelta(delta);
       ttDelta.className = "tt-value tt-delta " + (Math.abs(delta) > TOLERANCE_KG ? "off" : "on");
+      // Past dates show real Withings measure; future dates show forward projection
+      // from current trend. Labels reflect this to avoid implying we measured
+      // a weight that hasn't happened yet.
+      ttLabelActual.textContent = isFuture ? "projetée" : "mesurée";
+      ttLabelDelta.textContent  = isFuture ? "écart proj." : "écart";
 
       tooltip.hidden = false;
       // After paint, position with correct width.
