@@ -533,7 +533,9 @@ def build_pillars(yazio: list[dict], measurements: list[dict], activity: list[di
     )
     if len(rest_hr_series) >= 5:
         last12w = rest_hr_series[-84:]
-        latest_hr = last12w[-1][1]
+        # 7-day rolling avg smooths daily noise (a single bad night swings hr_min).
+        last7_vals = [v for _, v in last12w[-7:]]
+        latest_hr = int(round(sum(last7_vals) / len(last7_vals)))
         vmin, vmax = min(v for _, v in last12w), max(v for _, v in last12w)
         rng = (vmax - vmin) or 1
         pts = []
