@@ -522,9 +522,43 @@ def build_pillars(yazio: list[dict], measurements: list[dict], activity: list[di
             },
         })
 
-    # Cardio: VO2max if present
+    # Cardio: resting HR from withings_activity_daily.raw.hr_min (Huawei via HC).
+    # No ScanWatch in the user's setup, so VO2max stays unavailable for now.
+    rest_hr_series = sorted(
+        [(a["date"], int(a["raw"]["hr_min"]))
+         for a in activity
+         if a.get("raw") and isinstance(a["raw"], dict) and a["raw"].get("hr_min")
+         and int(a["raw"]["hr_min"]) > 30],
+        key=lambda x: x[0],
+    )
+    if len(rest_hr_series) >= 5:
+        last12w = rest_hr_series[-84:]
+        latest_hr = last12w[-1][1]
+        vmin, vmax = min(v for _, v in last12w), max(v for _, v in last12w)
+        rng = (vmax - vmin) or 1
+        pts = []
+        for i, (_, v) in enumerate(last12w):
+            x = round(8 + (i / max(1, len(last12w) - 1)) * 184, 1)
+            # higher HR = worse → render higher value lower in chart
+            y = round(22 + ((v - vmin) / rng) * 38, 1)
+            pts.append([x, y])
+        pillars.append({
+            "key": "cardio",
+            "label": "Cardio (HR repos)",
+            "meta": f"{min(12, len(last12w) // 7)} sem",
+            "figure": str(latest_hr),
+            "unit": "bpm",
+            "chart": {
+                "kind": "area",
+                "target_label": "cible 50",
+                "target_y": 60,
+                "points": pts,
+            },
+        })
+
+    # (Legacy block kept in case VO2max appears later, e.g. ScanWatch acquired)
     vo2_series = sorted([m for m in measurements if m["type_code"] == 123], key=lambda m: m["ts"])
-    if vo2_series:
+    if vo2_series and not any(p["key"] == "cardio" for p in pillars):
         latest_vo2 = vo2_series[-1]
         last_pts = vo2_series[-12:]
         vals = [float(m["value"]) for m in last_pts]
@@ -714,7 +748,7 @@ def main() -> None:
         "order": "ts.desc",
     })
     activity = sb_get("withings_activity_daily", {
-        "select": "date,steps,distance_m,active_min,active_kcal,total_kcal",
+        "select": "date,steps,distance_m,active_min,active_kcal,total_kcal,raw",
         "order": "date.desc",
     })
     yazio = sb_get("yazio_day", {
