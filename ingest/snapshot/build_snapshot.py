@@ -552,6 +552,49 @@ def build_pillars(yazio: list[dict], measurements: list[dict], activity: list[di
     return pillars
 
 
+SEGMENT_LABELS = {
+    # Withings Body Scan position codes. Mapping observed empirically:
+    # value 12 (largest) ≈ trunk; 10/11 ≈ legs; 2/3 ≈ arms. Left/right
+    # ambiguity remains — labels stay symmetric so the user can identify
+    # them by comparing to the Withings Health Mate app.
+    2: "Bras A",
+    3: "Bras B",
+    10: "Jambe A",
+    11: "Jambe B",
+    12: "Tronc",
+}
+
+
+def _segment_subs(measurements: list[dict], type_code: int, unit: str, key_prefix: str) -> list[dict]:
+    """One SubTrajectory per Body Scan segment for the given type_code."""
+    rows = [m for m in measurements if m["type_code"] == type_code and m.get("position") in SEGMENT_LABELS]
+    if not rows:
+        return []
+    by_pos: dict[int, list[dict]] = {}
+    for r in rows:
+        by_pos.setdefault(int(r["position"]), []).append(r)
+    out: list[dict] = []
+    for pos in sorted(by_pos):
+        series = sorted(by_pos[pos], key=lambda r: r["ts"])[-12:]
+        if not series:
+            continue
+        latest_v = float(series[-1]["value"])
+        first_v = float(series[0]["value"])
+        delta = latest_v - first_v
+        pts = [{"date": fmt_date_fr(date.fromisoformat(r["ts"][:10])), "value": round(float(r["value"]), 2)} for r in series]
+        sign = "+" if delta >= 0 else "−"
+        out.append({
+            "key": f"{key_prefix}_{pos}",
+            "label": f"{SEGMENT_LABELS[pos]} — {key_prefix}",
+            "unit": unit,
+            "current": fmt_num(latest_v, 2),
+            "trend_label": f"{sign}{fmt_num(abs(delta), 2)} sur {len(series)} mesures",
+            "points": pts,
+            "ambre": False,
+        })
+    return out
+
+
 def build_pillar_detail_composition(measurements: list[dict], today: date) -> dict | None:
     fat = sorted(
         [m for m in measurements if m["type_code"] == 6 and (m.get("position") in (None, 0, 7))],
@@ -594,6 +637,7 @@ def build_pillar_detail_composition(measurements: list[dict], today: date) -> di
             "target": {"value": 16, "label": "cible 16 %"},
         },
         "table": rows,
+        "subs": _segment_subs(measurements, 175, "kg", "muscle") + _segment_subs(measurements, 174, "kg", "fat"),
         "method": [
             {"heading": "Source", "body": "Withings Body Scan (BIA segmentale 8 électrodes, 50 kHz). Mesure auto au lever, à jeun. MG% via algorithme propriétaire calibré hydratation."},
             {"heading": "Fenêtre", "body": f"Échantillonnage 1 mesure / mois sur 12 mois. Dernière mesure {fmt_date_fr(latest_d)}."},
