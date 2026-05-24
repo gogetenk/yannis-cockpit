@@ -578,8 +578,9 @@ def build_ai_brief(payload: dict, full_context: dict | None = None) -> str | Non
             messages=[{"role": "user", "content": user_msg}],
         )
         text = resp.content[0].text.strip() if resp.content else ""
-        # Strip leading/trailing quotes the model sometimes adds
         text = text.strip('"\u201c\u201d').strip()
+        # Strip em-dashes the model sometimes adds despite the prompt ban.
+        text = text.replace(" \u2014 ", ", ").replace("\u2014", ",").replace(" -- ", ", ")
         return text or None
     except Exception as e:
         print(f"  (ai_brief failed: {e})", file=sys.stderr)
