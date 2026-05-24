@@ -393,17 +393,17 @@ def build_signals(yazio: list[dict], measurements: list[dict], activity: list[di
     # Wegovy response z-score removed: hero already conveys "X kg en avance/retard
     # vs cible idéale", which is the human-readable form of the same z.
 
-    # --- Sleep debt: works without HRV; HRV only enriches if available ---
+    # --- Sleep debt vs optimum 7.5h (Hirshkowitz NSF 2015, Walker 2017) ---
     sleep_pts = _sleep_minutes_per_day(hc_records, today, 14)
     if len(sleep_pts) >= 3:
         last7 = sleep_pts[-7:]
         avg_min = sum(v for _, v in last7) / len(last7)
-        deficit = (420 - avg_min) * len(last7) / 60  # hours under 7h target
-        watch = avg_min < 380
+        deficit = (450 - avg_min) * len(last7) / 60  # hours under 7.5h optimum
+        watch = avg_min < 400  # <6h40 = alerte
         out.append({
             "id": "sleep",
             "title": "Dette sommeil",
-            "sub": "cible 7 h/nuit",
+            "sub": "optimum 7 h 30",
             "value": f"{'+' if deficit < 0 else '−'}{abs(int(deficit))} h",
             "unit": f"/ {len(last7)} j",
             "status": "watch" if watch else "ok",
