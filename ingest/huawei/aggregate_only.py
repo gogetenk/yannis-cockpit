@@ -14,6 +14,9 @@ from ingest_huawei_export import (
 def run(root: str, out_path: str) -> None:
     files = sorted(glob.glob(os.path.join(root, "Health detail data & description", "*.json")))
     by_day: dict = defaultdict(make_day)
+    # Dedup sleep phases across all files/sources: watch + phone + sync
+    # may emit the same physical sleep session multiple times.
+    seen_sleep_sessions: set = set()
     for f in files:
         try:
             data = json.load(open(f, encoding="utf-8"))
@@ -37,6 +40,10 @@ def run(root: str, out_path: str) -> None:
                     if val_num and 30 < val_num < 220:
                         bucket["hr_vals"].append(val_num)
                 elif key in SLEEP_PHASE_KEYS and end:
+                    sess_key = (start, end, key)
+                    if sess_key in seen_sleep_sessions:
+                        continue
+                    seen_sleep_sessions.add(sess_key)
                     minutes = round((end - start) / 60000)
                     if 0 < minutes < 24 * 60:
                         bucket["sleep_min"][SLEEP_PHASE_KEYS[key]] += minutes
@@ -59,6 +66,11 @@ def run(root: str, out_path: str) -> None:
     for d, b in sorted(by_day.items()):
         sleep_phases = b["sleep_min"]
         total_sleep = sum(v for k, v in sleep_phases.items() if k != "noon")
+        # Sanity cap: post-dedup, > 12h of nightly sleep is implausible.
+        # Most likely residual overlap we couldn't dedup → drop the row.
+        if total_sleep > 720:
+            total_sleep = 0
+            sleep_phases = defaultdict(int)
         rows.append({
             "date": d.isoformat(),
             "rest_hr_avg": round(sum(b["rest_hr_vals"]) / len(b["rest_hr_vals"]), 1) if b["rest_hr_vals"] else None,

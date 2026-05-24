@@ -105,6 +105,9 @@ def main() -> None:
     print(f"→ {len(files)} files to scan", file=sys.stderr)
 
     by_day: dict[date, dict] = defaultdict(make_day)
+    # Dedup sleep phases across all files/sources: watch + phone + sync
+    # may emit the same physical sleep session multiple times.
+    seen_sleep_sessions: set = set()
 
     for i, f in enumerate(files, 1):
         try:
@@ -131,6 +134,10 @@ def main() -> None:
                     if val_num and 30 < val_num < 220:
                         bucket["hr_vals"].append(val_num)
                 elif key in SLEEP_PHASE_KEYS and end:
+                    sess_key = (start, end, key)
+                    if sess_key in seen_sleep_sessions:
+                        continue
+                    seen_sleep_sessions.add(sess_key)
                     minutes = round((end - start) / 60000)
                     if 0 < minutes < 24 * 60:
                         bucket["sleep_min"][SLEEP_PHASE_KEYS[key]] += minutes
@@ -163,6 +170,10 @@ def main() -> None:
     for d, b in sorted(by_day.items()):
         sleep_phases = b["sleep_min"]
         total_sleep = sum(v for k, v in sleep_phases.items() if k != "noon")
+        # Sanity cap: post-dedup, > 12h of nightly sleep is implausible.
+        if total_sleep > 720:
+            total_sleep = 0
+            sleep_phases = defaultdict(int)
         rows.append({
             "date": d.isoformat(),
             "rest_hr_avg": round(sum(b["rest_hr_vals"]) / len(b["rest_hr_vals"]), 1) if b["rest_hr_vals"] else None,
