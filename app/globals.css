@@ -1462,20 +1462,6 @@ header.detail-header .detail-back:focus-visible {
   color: var(--deep-sage);
   font-variant-numeric: tabular-nums;
 }
-.biology-foot {
-  font-size: 11px;
-  color: var(--sage-ash);
-  font-variant-numeric: tabular-nums;
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  border-top: 1px solid var(--sage-mist);
-  padding-top: 10px;
-}
-.biology-foot strong {
-  font-weight: 500;
-  color: var(--sage-ink);
-}
 
 /* Biology detail page: marker list grouped by system. */
 .bio-sections { display: flex; flex-direction: column; gap: 22px; }
