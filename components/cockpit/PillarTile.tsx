@@ -8,7 +8,7 @@ export function PillarTile({ pillar }: Props) {
   return (
     <Link href={`/detail/${pillar.key}`} className="tile tile--link" aria-labelledby={id}>
       <header className="tile-head">
-        <span className="label" id={id}>{pillar.label}</span>
+        <span className="label" id={id}>{pillar.label} <span className="card-chevron" aria-hidden>›</span></span>
         <span className="meta">{pillar.meta}</span>
       </header>
       <p className="tile-figure">{pillar.figure}<span className="unit">{pillar.unit}</span></p>

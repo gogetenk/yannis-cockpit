@@ -198,7 +198,7 @@
       font-family: var(--font-display);
       font-size: 17px;
       font-weight: 400;
-      color: var(--cream-on-sage-soft);
+      color: var(--cream-on-sage);
       font-variant-numeric: tabular-nums;
       margin: 0;
     }
@@ -1040,7 +1040,7 @@
          a narrow curve under a left-aligned figure on a 1080px-wide panel. */
       section.hero {
         display: grid;
-        grid-template-columns: minmax(260px, 320px) 1fr;
+        grid-template-columns: minmax(320px, 380px) 1fr;
         grid-template-areas:
           "head   chart"
           "foot   chart";
