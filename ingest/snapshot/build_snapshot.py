@@ -405,7 +405,60 @@ def _bar_spark(values: list[float], color: str) -> dict:
     return {"kind": "bars", "color": color, "values": bars}
 
 
-def build_bio_age(measurements: list[dict], activity: list[dict] | None = None) -> dict:
+def latest_lab_panel(panels: list[dict], results: list[dict]) -> tuple[dict, dict] | None:
+    """Return (panel, {marker_code: result}) for the most recent panel, or None."""
+    if not panels:
+        return None
+    latest = max(panels, key=lambda p: p["collected_at"])
+    by_marker = {r["marker_code"]: r for r in results if r["panel_id"] == latest["id"]}
+    return latest, by_marker
+
+
+def phenoage_levine(markers: dict, chrono_yr: float) -> float | None:
+    """Levine PhenoAge (Aging 2018, NHANES + UK Biobank validated, n>10k).
+
+    Requires 9 biomarkers. Returns None if any is missing.
+    Coefficients from Levine ML et al., Aging (Albany NY) 2018; 10(4):573-91.
+    """
+    def get(code: str) -> float | None:
+        r = markers.get(code)
+        return float(r["value_num"]) if r and r.get("value_num") is not None else None
+
+    alb_g_dL = get("Albumin")
+    creat_mg_dL = get("Creat")
+    glu_mg_dL = get("Glu")
+    crp_mg_L = get("hsCRP")
+    lymph_pct = get("Lymph_pct")
+    mcv = get("MCV")
+    rdw = get("RDW")
+    alp = get("ALP")
+    wbc = get("WBC")
+    if None in (alb_g_dL, creat_mg_dL, glu_mg_dL, crp_mg_L, lymph_pct, mcv, rdw, alp, wbc):
+        return None
+
+    # Unit conversions to Levine's input units.
+    albumin_g_L = alb_g_dL * 10
+    creat_umol_L = creat_mg_dL * 88.4
+    glu_mmol_L = glu_mg_dL / 18.018
+    crp_mg_dL = crp_mg_L / 10
+    ln_crp = math.log(max(crp_mg_dL, 1e-4))
+
+    xb = (-19.907
+          - 0.0336 * albumin_g_L
+          + 0.0095 * creat_umol_L
+          + 0.1953 * glu_mmol_L
+          + 0.0954 * ln_crp
+          - 0.0120 * lymph_pct
+          + 0.0268 * mcv
+          + 0.3306 * rdw
+          + 0.00188 * alp
+          + 0.0554 * wbc
+          + 0.0804 * chrono_yr)
+    M = 1 - math.exp(-1.51714 * math.exp(xb) / 0.0076927)
+    return 141.50 + math.log(-0.00553 * math.log(max(1 - M, 1e-9))) / 0.09165
+
+
+def build_bio_age(measurements: list[dict], activity: list[dict] | None = None, labs: tuple | None = None) -> dict:
     """Bio age composite from what we can actually measure. Blood is held at
     chrono since labs are not ingested yet. Each subage rounds to nearest yr."""
     chrono = 35
@@ -445,10 +498,17 @@ def build_bio_age(measurements: list[dict], activity: list[dict] | None = None) 
     weighted_t = sum(DEXA["tscores"][k] * DEXA["weights"][k] for k in DEXA["tscores"])
     skeleton_age = int(round(DEXA["ref_age"] + (-weighted_t) * DEXA["years_per_sd"]))
 
-    # Blood: no panel ingested yet → mark off, exclude from composite to avoid
-    # biasing toward chrono.
-    blood_age_known = False
+    # Blood: PhenoAge Levine 2018 if labs available, else off.
+    blood_age: int | None = None
+    if labs:
+        _, markers = labs
+        pa = phenoage_levine(markers, chrono + 0.2)
+        if pa is not None:
+            blood_age = int(round(pa))
+
     measured = [cardio_age, composition_age, skeleton_age]
+    if blood_age is not None:
+        measured.append(blood_age)
     composite = round(sum(measured) / len(measured))
 
     return {
@@ -457,7 +517,7 @@ def build_bio_age(measurements: list[dict], activity: list[dict] | None = None) 
         "delta_vs_chrono": composite - chrono,
         "subages": [
             {"key": "cardio", "label": "Cardio", "value": cardio_age},
-            {"key": "blood", "label": "Sang", "value": chrono, "off": not blood_age_known},
+            {"key": "blood", "label": "Sang", "value": blood_age if blood_age is not None else chrono, "off": blood_age is None},
             {"key": "composition", "label": "Composition", "value": composition_age, "off": composition_age > chrono + 1},
             {"key": "skeleton", "label": "Squelette", "value": skeleton_age, "off": skeleton_age > chrono + 5},
         ],
@@ -1059,7 +1119,10 @@ def main() -> None:
         "select": "record_type,start_ts,end_ts,value_num,unit,source_app",
         "order": "start_ts.desc",
     })
-    print(f"  loaded: {len(measurements)} withings rows, {len(activity)} activity days, {len(yazio)} yazio days, {len(hc_records)} HC records", file=sys.stderr)
+    panels = sb_get("lab_panel", {"select": "id,collected_at,lab_name,panel_name", "order": "collected_at.desc"})
+    results = sb_get("lab_result", {"select": "panel_id,marker_code,marker_label,value_num,value_text,unit,ref_low,ref_high,flag,category"})
+    labs = latest_lab_panel(panels, results)
+    print(f"  loaded: {len(measurements)} withings rows, {len(activity)} activity days, {len(yazio)} yazio days, {len(hc_records)} HC records, {len(panels)} lab panels ({len(results)} results)", file=sys.stderr)
 
     pillar_detail: dict[str, Any] = {}
     comp_detail = build_pillar_detail_composition(measurements, today)
@@ -1081,7 +1144,7 @@ def main() -> None:
         "hero": build_hero(measurements, today),
         "wegovy": build_wegovy(today),
         "signals": build_signals(yazio, measurements, activity, hc_records, today),
-        "bio_age": build_bio_age(measurements, activity),
+        "bio_age": build_bio_age(measurements, activity, labs),
         "pillars": build_pillars(yazio, measurements, activity, hc_records, today),
         "pillar_detail": pillar_detail,
     }
