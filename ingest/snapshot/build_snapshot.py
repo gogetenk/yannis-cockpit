@@ -197,7 +197,7 @@ def build_hero(measurements: list[dict], today: date) -> dict:
         "tolerance_kg": TOLERANCE_KG,
         "start_date": WEGOVY_START_ISO,
         "today_week": round(today_week, 1),
-        "range": {"kg_min": 75, "kg_max": 87, "week_min": 0, "week_max": 52},
+        "range": {"kg_min": 73, "kg_max": 87, "week_min": 0, "week_max": 52},
         "real_points": real_weight_points(measurements, start, today),
         "eta_75kg": eta_date.isoformat(),
     }

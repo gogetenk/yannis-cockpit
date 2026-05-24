@@ -7,9 +7,15 @@ interface Props { hero: WeightHero }
 
 const VIEW = { xMin: 30, xMax: 330, yMin: 10, yMax: 170 };
 
-// Gompertz fit calibrated on STEP-1 trial (semaglutide 2.4 mg, asymptote 75 kg).
-function weightIdeal(t: number) { return 75 + 11.3 * Math.exp(-Math.pow(t / 22, 1.4)); }
-function weightProjected(t: number) { return 75 + 11.3 * Math.exp(-Math.pow(t / 19, 1.4)); }
+// Gompertz refit on Wilding 2021 STEP-1. Must stay in lockstep with
+// ingest/snapshot/build_snapshot.py (ASYMPTOTE_KG, GOMP_TAU_WEEKS, GOMP_SHAPE).
+// Asymptote 74 (not 75) is the STEP-1 plateau projected onto Yannis' 86.6 kg
+// baseline; 75 kg is the user goal, finite-time reachable.
+const ASYMP = 74;
+const START = 86.6;
+const SHAPE = 1.4;
+function weightIdeal(t: number) { return ASYMP + (START - ASYMP) * Math.exp(-Math.pow(t / 20, SHAPE)); }
+function weightProjected(t: number) { return ASYMP + (START - ASYMP) * Math.exp(-Math.pow(t / 18, SHAPE)); }
 
 function deltaPhrase(delta: number, tolerance: number): string {
   // Negative delta = lighter than ideal = ahead of plan.
@@ -96,10 +102,8 @@ export function Hero({ hero }: Props) {
   const etaX = weekToX(hero.today_week + (week_max - hero.today_week)); // not strictly correct; use real eta
   // Compute eta X from ideal: find when ideal crosses 75 within range.
   const etaWeeks = useMemo(() => {
-    // since ideal(t) = 75 + 11.3*exp(-(t/22)^1.4), reach 75 only as t→∞.
-    // Use the projected curve instead; find earliest t where projected ≤ 75.1.
     for (let w = 0; w <= week_max + 4; w += 0.1) {
-      if (weightProjected(w) <= 75.1) return w;
+      if (weightProjected(w) <= 75) return w;
     }
     return week_max;
   }, [week_max]);
@@ -174,15 +178,15 @@ export function Hero({ hero }: Props) {
             </linearGradient>
           </defs>
 
-          {/* Y axis */}
+          {/* Y axis: kg_min=73, kg_max=87 → 14 kg / 160 px = 11.43 px per kg */}
           <g fontSize="9" fontWeight="500" style={{ fill: "var(--cream-on-sage-soft)" }}>
             <text x="330" y="14" textAnchor="end">87</text>
-            <text x="330" y="80.3" textAnchor="end">82</text>
-            <text x="330" y="173" textAnchor="end">75</text>
+            <text x="330" y="80.7" textAnchor="end">81</text>
+            <text x="330" y={wToY(75).toFixed(1)} textAnchor="end">75</text>
           </g>
 
-          {/* Goal line */}
-          <line x1="30" y1="170" x2="330" y2="170" strokeWidth="0.5" strokeDasharray="2 3" opacity="0.45" style={{ stroke: "var(--cream-on-sage-soft)" }}/>
+          {/* Goal line at 75 kg */}
+          <line x1="30" y1={wToY(75).toFixed(1)} x2="330" y2={wToY(75).toFixed(1)} strokeWidth="0.5" strokeDasharray="2 3" opacity="0.45" style={{ stroke: "var(--cream-on-sage-soft)" }}/>
 
           {/* X axis labels */}
           <g fontSize="9" fontWeight="500" letterSpacing="0.06em" style={{ fill: "var(--cream-on-sage-soft)" }}>
