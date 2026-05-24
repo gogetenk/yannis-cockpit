@@ -376,8 +376,16 @@ def build_signals(yazio: list[dict], measurements: list[dict], activity: list[di
         })
 
     # --- Proteins / LBM ---
+    # yazio is sorted date.desc by sb_get, so we filter by date (NOT slice).
+    # Skip zero/partial-log days (<30 g) — they're days not actually logged,
+    # not days of fasting.
     lbm_row = next((m for m in measurements if m["type_code"] == 5 and (m.get("position") in (None, 0, 7))), None)
-    proteins = [float(y["protein_g"]) for y in yazio[-28:] if y.get("protein_g")]
+    proteins = [
+        float(y["protein_g"]) for y in yazio
+        if y.get("protein_g") is not None
+        and float(y["protein_g"]) > 30
+        and win_start <= date.fromisoformat(y["date"]) <= today
+    ]
     if lbm_row and proteins:
         lbm = float(lbm_row["value"])
         avg_protein = sum(proteins) / len(proteins)
