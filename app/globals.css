@@ -1403,9 +1403,9 @@ header.detail-header .detail-back:focus-visible {
 .biology {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 8px;
   background: var(--warm-cream-rest);
-  margin: 16px var(--pad-screen) 0;
+  margin: 16px var(--pad-screen);
   border-radius: var(--rounded-banner);
   padding: 14px 16px 16px;
   color: inherit;
