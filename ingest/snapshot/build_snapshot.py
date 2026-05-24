@@ -33,6 +33,8 @@ from typing import Any
 import requests
 
 
+VO2_MAX_HUAWEI = 45  # User-reported from Huawei Health, 2026-05-23
+
 WEGOVY_START_ISO = "2026-04-14"  # Yannis' first injection (J1).
 WEGOVY_LADDER = [
     {"dose_mg": 0.25, "weeks": (0, 4)},
@@ -342,7 +344,7 @@ def build_wegovy(today: date) -> dict:
     }
 
 
-def build_signals(yazio: list[dict], measurements: list[dict], activity: list[dict], hc_records: list[dict], today: date) -> list[dict]:
+def build_signals(yazio: list[dict], measurements: list[dict], activity: list[dict], hc_records: list[dict], today: date, huawei_daily: list[dict] | None = None) -> list[dict]:
     """5 cross-source signals. Returns only those with usable data."""
     out: list[dict] = []
 
@@ -438,6 +440,33 @@ def build_signals(yazio: list[dict], measurements: list[dict], activity: list[di
             "status_label": "à surveiller" if watch else "conforme",
             "spark": _bar_spark([int(a["steps"]) for a in recent_act[-14:]], "ambre" if watch else "sage"),
         })
+
+    # --- Stress chronique (Huawei TruSeen) ---
+    # Rolling 7d vs baseline 90d. Threshold +15 % sustained = drift.
+    if huawei_daily:
+        cutoff_7 = today - timedelta(days=7)
+        cutoff_90 = today - timedelta(days=90)
+        s7 = [float(r["stress_avg"]) for r in huawei_daily
+              if r.get("stress_avg") is not None
+              and date.fromisoformat(r["date"]) >= cutoff_7]
+        s90 = [float(r["stress_avg"]) for r in huawei_daily
+               if r.get("stress_avg") is not None
+               and date.fromisoformat(r["date"]) >= cutoff_90]
+        if len(s7) >= 7 and len(s90) >= 30:
+            avg7 = sum(s7) / len(s7)
+            avg90 = sum(s90) / len(s90)
+            drift = (avg7 - avg90) / avg90 if avg90 > 0 else 0
+            watch = drift > 0.15
+            out.append({
+                "id": "stress_chronic",
+                "title": "Stress chronique",
+                "sub": "vs baseline 90 j",
+                "value": str(int(round(avg7))),
+                "unit": "/100",
+                "status": "watch" if watch else "ok",
+                "status_label": "à surveiller" if watch else "conforme",
+                "spark": _bar_spark([int(round(v)) for v in s7[-14:]], "ambre" if watch else "sage"),
+            })
 
     return out
 
@@ -746,16 +775,27 @@ def lifetime_cv_risk_full(markers: dict, age_yr: float, bmi: float | None = None
     return 1, "tous optimaux", None
 
 
-def build_bio_age(measurements: list[dict], activity: list[dict] | None = None, labs: tuple | None = None) -> dict:
+def build_bio_age(measurements: list[dict], activity: list[dict] | None = None, labs: tuple | None = None, hc_records: list[dict] | None = None, huawei_daily: list[dict] | None = None, today: date | None = None) -> dict:
     """Bio age composite from what we can actually measure. Blood is held at
     chrono since labs are not ingested yet. Each subage rounds to nearest yr."""
     chrono = 35
-    # Cardio: prefer VO2max if present, else derive from rolling 7d HR repos
-    # via Tanaka-style mapping (≈50 bpm = trained young, 60 = average adult,
-    # 70 = deconditioned). Linear interp; clamped to 20-50.
+    today = today or date.today()
+    # Cardio: prefer VO2max Huawei (user-reported) via Wier-style age-equivalence:
+    #   cardio_age = chrono - clamp(round((VO2max - 40)/2), -10, +10).
+    # Honest, conservative: VO2max 45 at age 35 → cardio age 33.
+    # Else: HR repos source priority huawei_daily.rest_hr_min last 30d > HC last
+    # 30d > Withings/Huawei via activity (legacy) > chrono fallback.
     vo2 = next((m for m in measurements if m["type_code"] == 123), None)
     if vo2:
-        cardio_age = max(20, chrono - int(round((float(vo2["value"]) - 45) / 2)))
+        delta = max(-10, min(10, int(round((float(vo2["value"]) - 40) / 2))))
+        cardio_age = max(20, chrono - delta)
+    elif VO2_MAX_HUAWEI:
+        delta = max(-10, min(10, int(round((VO2_MAX_HUAWEI - 40) / 2))))
+        cardio_age = max(20, chrono - delta)
+    elif huawei_daily and (hr_min := _huawei_rest_hr_min_30d(huawei_daily, today)) is not None:
+        cardio_age = max(20, min(60, int(round(25 + (hr_min - 50) * 1.0))))
+    elif hc_records and (hr_hc := _avg_hr_from_hc(hc_records, today)) is not None:
+        cardio_age = max(20, min(60, int(round(25 + (hr_hc - 50) * 1.0))))
     elif activity:
         hr_min_recent = sorted(
             [(a["date"], int(a["raw"]["hr_min"]))
@@ -835,6 +875,53 @@ def _composite_history(measurements: list[dict], chrono: int) -> list[dict]:
         composite = round((cardio + chrono + composition + chrono) / 4)
         out.append({"month": MONTHS_FR[anchor.month - 1].upper() + (" '" + str(anchor.year % 100)) if months_back in (12, 6, 0) else MONTHS_FR[anchor.month - 1].upper(), "value": composite})
     return out
+
+
+def _huawei_5y_summary(huawei_daily: list[dict], today: date) -> dict:
+    """Compact summary of the Huawei 5-y history for the LLM context."""
+    cutoff_30 = today - timedelta(days=30)
+    cutoff_7 = today - timedelta(days=7)
+    cutoff_90 = today - timedelta(days=90)
+    rest_hr_30 = [float(r["rest_hr_avg"]) for r in huawei_daily
+                  if r.get("rest_hr_avg") is not None
+                  and date.fromisoformat(r["date"]) >= cutoff_30]
+    rest_hr_all = [float(r["rest_hr_avg"]) for r in huawei_daily
+                   if r.get("rest_hr_avg") is not None]
+    stress_7 = [float(r["stress_avg"]) for r in huawei_daily
+                if r.get("stress_avg") is not None
+                and date.fromisoformat(r["date"]) >= cutoff_7]
+    stress_90 = [float(r["stress_avg"]) for r in huawei_daily
+                 if r.get("stress_avg") is not None
+                 and date.fromisoformat(r["date"]) >= cutoff_90]
+    deep_pct_30 = []
+    for r in huawei_daily:
+        if r.get("sleep_total_min") and r.get("sleep_deep_min") is not None \
+                and float(r["sleep_total_min"]) > 0 \
+                and date.fromisoformat(r["date"]) >= cutoff_30:
+            deep_pct_30.append(float(r["sleep_deep_min"]) / float(r["sleep_total_min"]) * 100)
+    dates = sorted(r["date"] for r in huawei_daily if r.get("date"))
+    years = round((date.fromisoformat(dates[-1]) - date.fromisoformat(dates[0])).days / 365.25, 1) if dates else 0
+    return {
+        "years_of_data": years,
+        "current_rest_hr": round(sum(rest_hr_30) / len(rest_hr_30), 1) if rest_hr_30 else None,
+        "all_time_rest_hr_avg": round(sum(rest_hr_all) / len(rest_hr_all), 1) if rest_hr_all else None,
+        "stress_chronic_now_7d": round(sum(stress_7) / len(stress_7), 1) if stress_7 else None,
+        "stress_baseline_90d": round(sum(stress_90) / len(stress_90), 1) if stress_90 else None,
+        "sleep_deep_pct_30d": round(sum(deep_pct_30) / len(deep_pct_30), 1) if deep_pct_30 else None,
+        "vo2max_huawei": VO2_MAX_HUAWEI,
+    }
+
+
+def _huawei_rest_hr_min_30d(huawei_daily: list[dict], today: date) -> float | None:
+    """Min of daily rest_hr_min over last 30 days (Huawei). The trough = real
+    resting HR; nightly minima fluctuate so we take the lowest of the window."""
+    cutoff = today - timedelta(days=30)
+    vals = [
+        float(r["rest_hr_min"]) for r in huawei_daily
+        if r.get("rest_hr_min") is not None
+        and date.fromisoformat(r["date"]) >= cutoff
+    ]
+    return min(vals) if vals else None
 
 
 def _avg_hr_from_hc(hc_records: list[dict], today: date) -> float | None:
@@ -1158,8 +1245,9 @@ def build_pillar_detail_composition(measurements: list[dict], today: date) -> di
     }
 
 
-def build_pillar_detail_cardio(activity: list[dict], today: date) -> dict | None:
-    """HR repos derived from Withings activity.raw.hr_min (Huawei via HC)."""
+def build_pillar_detail_cardio(activity: list[dict], today: date, huawei_daily: list[dict] | None = None) -> dict | None:
+    """HR repos. Source priority: huawei_daily.rest_hr_avg (5 y history) >
+    Withings activity.raw.hr_min (Huawei via HC, ~30 j window)."""
     series = sorted(
         [(a["date"], int(a["raw"]["hr_min"]))
          for a in activity
@@ -1172,8 +1260,26 @@ def build_pillar_detail_cardio(activity: list[dict], today: date) -> dict | None
     last90 = series[-90:]
     last7 = last90[-7:]
     avg7 = int(round(sum(v for _, v in last7) / len(last7)))
-    # 90 days trajectory
-    pts = [{"date": fmt_date_fr(date.fromisoformat(d)), "value": v} for d, v in last90]
+    # 24 months trajectory from huawei_daily.rest_hr_avg (monthly average),
+    # falling back to last 90 days from Withings/HC otherwise.
+    pts_24m: list[dict] = []
+    if huawei_daily:
+        cutoff_24m = today - timedelta(days=730)
+        buckets: dict[str, list[float]] = {}
+        for r in huawei_daily:
+            if r.get("rest_hr_avg") is None:
+                continue
+            d = date.fromisoformat(r["date"])
+            if d < cutoff_24m:
+                continue
+            key = f"{d.year:04d}-{d.month:02d}"
+            buckets.setdefault(key, []).append(float(r["rest_hr_avg"]))
+        for key in sorted(buckets):
+            yr, mo = key.split("-")
+            label = MONTHS_FR[int(mo) - 1].upper() + " '" + yr[2:]
+            pts_24m.append({"date": label, "value": int(round(sum(buckets[key]) / len(buckets[key])))})
+    # 90 days trajectory (legacy fallback)
+    pts = pts_24m if pts_24m else [{"date": fmt_date_fr(date.fromisoformat(d)), "value": v} for d, v in last90]
     avg_first7 = sum(v for _, v in last90[:7]) / max(1, min(7, len(last90)))
     delta = avg7 - avg_first7
     rows = [{"date": fmt_date_fr(date.fromisoformat(d)), "value": v, "unit": "bpm",
@@ -1190,10 +1296,10 @@ def build_pillar_detail_cardio(activity: list[dict], today: date) -> dict | None
             "status_off": avg7 > 60,
         },
         "trajectory": {
-            "x_label": "90 j",
+            "x_label": "24 mois" if pts_24m else "90 j",
             "y_unit": "bpm",
-            "y_min": min(v for _, v in last90) - 3,
-            "y_max": max(v for _, v in last90) + 3,
+            "y_min": (min(p["value"] for p in pts) - 3) if pts else (min(v for _, v in last90) - 3),
+            "y_max": (max(p["value"] for p in pts) + 3) if pts else (max(v for _, v in last90) + 3),
             "points": pts,
             "target": {"value": 50, "label": "cible 50 bpm"},
         },
@@ -1274,8 +1380,9 @@ def build_detail_wegovy(measurements: list[dict], today: date) -> dict:
     }
 
 
-def build_pillar_detail_recovery(hc_records: list[dict], today: date) -> dict | None:
-    """Sleep + HRV from Health Connect. Returns placeholder until APK installed."""
+def build_pillar_detail_recovery(hc_records: list[dict], today: date, huawei_daily: list[dict] | None = None) -> dict | None:
+    """Sleep + HRV. Prefers huawei_daily (5 y history with sleep phases),
+    falls back to Health Connect."""
     sleep_pts = _sleep_minutes_per_day(hc_records, today, 30)
     if not sleep_pts:
         return {
@@ -1307,10 +1414,41 @@ def build_pillar_detail_recovery(hc_records: list[dict], today: date) -> dict | 
     h, m = int(avg_min // 60), int(avg_min - (avg_min // 60) * 60)
     pts = [{"date": fmt_date_fr(d), "value": int(v)} for d, v in sleep_pts]
     rows = [{"date": fmt_date_fr(d), "value": f"{int(v // 60)} h {int(v - (v // 60) * 60):02d}", "unit": "", "off": v < 360} for d, v in sleep_pts[-7:][::-1]]
+
+    # 6 months weekly trajectory + deep/REM sub-trajectories from huawei_daily.
+    weekly_pts: list[dict] = []
+    deep_pct_pts: list[dict] = []
+    rem_pct_pts: list[dict] = []
+    if huawei_daily:
+        cutoff_6m = today - timedelta(days=183)
+        weekly: dict[str, list[float]] = {}
+        deep_w: dict[str, list[float]] = {}
+        rem_w: dict[str, list[float]] = {}
+        for r in huawei_daily:
+            if r.get("sleep_total_min") is None or float(r["sleep_total_min"]) <= 0:
+                continue
+            d = date.fromisoformat(r["date"])
+            if d < cutoff_6m:
+                continue
+            iso_year, iso_week, _ = d.isocalendar()
+            key = f"{iso_year:04d}-W{iso_week:02d}"
+            total = float(r["sleep_total_min"])
+            weekly.setdefault(key, []).append(total)
+            if r.get("sleep_deep_min") is not None:
+                deep_w.setdefault(key, []).append(float(r["sleep_deep_min"]) / total * 100)
+            if r.get("sleep_rem_min") is not None:
+                rem_w.setdefault(key, []).append(float(r["sleep_rem_min"]) / total * 100)
+        for key in sorted(weekly):
+            label = key.split("-W")[1] + "/" + key.split("-")[0][2:]
+            weekly_pts.append({"date": "S" + label, "value": int(round(sum(weekly[key]) / len(weekly[key])))})
+            if key in deep_w:
+                deep_pct_pts.append({"date": "S" + label, "value": round(sum(deep_w[key]) / len(deep_w[key]), 1)})
+            if key in rem_w:
+                rem_pct_pts.append({"date": "S" + label, "value": round(sum(rem_w[key]) / len(rem_w[key]), 1)})
     return {
         "key": "recovery",
         "title": "Récupération",
-        "meta": "Huawei Watch GT2 · sommeil via Health Connect",
+        "meta": "Huawei Watch GT2 · sommeil via Health Connect" + (" + huawei_daily (5 ans)" if weekly_pts else ""),
         "hero": {
             "figure": f"{h} h {m:02d}",
             "unit": "moyenne 7 j",
@@ -1318,14 +1456,18 @@ def build_pillar_detail_recovery(hc_records: list[dict], today: date) -> dict | 
             "status_off": avg_min < 420,
         },
         "trajectory": {
-            "x_label": "30 j",
+            "x_label": "6 mois (sem.)" if weekly_pts else "30 j",
             "y_unit": "min",
             "y_min": 240,
             "y_max": 540,
-            "points": pts,
+            "points": weekly_pts if weekly_pts else pts,
             "target": {"value": 420, "label": "cible 7 h"},
             "tolerance": 30,
         },
+        "sub_trajectories": [
+            {"key": "deep_pct", "label": "Sommeil profond (%)", "y_unit": "%", "points": deep_pct_pts, "target": {"value": 15, "label": "cible 13-23 %"}},
+            {"key": "rem_pct", "label": "Sommeil REM (%)", "y_unit": "%", "points": rem_pct_pts, "target": {"value": 22, "label": "cible 20-25 %"}},
+        ] if (deep_pct_pts or rem_pct_pts) else [],
         "table": rows,
         "method": [
             {"heading": "Source", "body": "Huawei Watch GT2 (TruSleep PPG + accéléromètre). Stades sommeil détectés: éveil, léger, profond, REM. Précision ±25 min vs polysomnographie (Chinoy 2021)."},
@@ -1609,10 +1751,11 @@ def main() -> None:
         "select": "record_type,start_ts,end_ts,value_num,unit,source_app",
         "order": "start_ts.desc",
     })
+    huawei_daily = sb_get("huawei_daily", {"select": "*", "order": "date.desc"})
     panels = sb_get("lab_panel", {"select": "id,collected_at,lab_name,panel_name", "order": "collected_at.desc"})
     results = sb_get("lab_result", {"select": "panel_id,marker_code,marker_label,value_num,value_text,unit,ref_low,ref_high,flag,category"})
     labs = latest_lab_panel(panels, results)
-    print(f"  loaded: {len(measurements)} withings rows, {len(activity)} activity days, {len(yazio)} yazio days, {len(hc_records)} HC records, {len(panels)} lab panels ({len(results)} results)", file=sys.stderr)
+    print(f"  loaded: {len(measurements)} withings rows, {len(activity)} activity days, {len(yazio)} yazio days, {len(hc_records)} HC records, {len(huawei_daily)} huawei_daily rows, {len(panels)} lab panels ({len(results)} results)", file=sys.stderr)
 
     pillar_detail: dict[str, Any] = {}
     comp_detail = build_pillar_detail_composition(measurements, today)
@@ -1621,10 +1764,10 @@ def main() -> None:
     act_detail = build_pillar_detail_activity(activity, today)
     if act_detail:
         pillar_detail["activity"] = act_detail
-    cardio_detail = build_pillar_detail_cardio(activity, today)
+    cardio_detail = build_pillar_detail_cardio(activity, today, huawei_daily)
     if cardio_detail:
         pillar_detail["cardio"] = cardio_detail
-    recovery_detail = build_pillar_detail_recovery(hc_records, today)
+    recovery_detail = build_pillar_detail_recovery(hc_records, today, huawei_daily)
     if recovery_detail:
         pillar_detail["recovery"] = recovery_detail
     pillar_detail["wegovy"] = build_detail_wegovy(measurements, today)
@@ -1632,14 +1775,14 @@ def main() -> None:
     if bio_detail:
         pillar_detail["biology"] = bio_detail
 
-    sigs = build_signals(yazio, measurements, activity, hc_records, today)
+    sigs = build_signals(yazio, measurements, activity, hc_records, today, huawei_daily)
     payload: dict[str, Any] = {
         "today": today.isoformat(),
         "hero": build_hero(measurements, today),
         "wegovy": build_wegovy(today),
         "signals": sigs,
         "action_today": build_action_today(sigs),
-        "bio_age": build_bio_age(measurements, activity, labs),
+        "bio_age": build_bio_age(measurements, activity, labs, hc_records, huawei_daily, today),
         "biology": build_biology(panels, results, today, measurements),
         "pillars": build_pillars(yazio, measurements, activity, hc_records, today),
         "pillar_detail": pillar_detail,
@@ -1656,6 +1799,7 @@ def main() -> None:
             if labs and r["panel_id"] == labs[0]["id"]
         ] if labs else [],
         "lab_panel_date": labs[0]["collected_at"] if labs else None,
+        "huawei_5y_summary": _huawei_5y_summary(huawei_daily, today) if huawei_daily else None,
     }
     payload["ai_brief"] = build_ai_brief(payload, raw_context)
 
