@@ -66,10 +66,15 @@ GOMP_TAU_WEEKS = 20   # cohort time constant; matches STEP-1 mid-curve.
 GOMP_SHAPE = 1.4
 GOAL_KG = 75.0
 
-# DEXA from HBG MC scan dated 2026-04-21 (Yannis age 35.1). T-scores by site.
-# Pondération inspirée ISCD: rachis 40% (trabéculaire = marqueur précoce),
-# col fémoral 30% (prédicteur fracture), hanche totale 15%, radius 15% (cortical).
-# Conversion T-score → âge osseux: 1 SD ≈ 8 années (Kanis 2008 / FRAX ref).
+# DEXA from HBG MC scan dated 2026-04-21 (Yannis age 35.1). Site-level
+# T-scores AND Z-scores. Pondération inspirée ISCD: rachis 40% (trabéculaire =
+# marqueur précoce), col fémoral 30% (prédicteur fracture), hanche totale 15%,
+# radius 15% (cortical).
+#
+# Skeleton age uses Z-scores (vs age-matched cohort, so directly convertible
+# to age-equivalence): bone_age = chrono + (-Z_weighted) * 8.
+# T-scores are kept for clinical context (osteopenia/osteoporosis vs young
+# adult peak). 1 SD ≈ 8 years remains a rough heuristic.
 DEXA = {
     "date": "2026-04-21",
     "tscores": {
@@ -78,16 +83,27 @@ DEXA = {
         "total_hip_avg": -0.75,         # (-0.8 G + -0.7 D) / 2, normal
         "radius_total_avg": 0.9,        # (+0.7 G + +1.1 D) / 2, normal fort
     },
+    "zscores": {
+        # Z-scores per site (vs age-matched cohort, HBG MC 2026-04-21):
+        # L1 -2.2, L2 -1.2, L3 -0.8, L4 -1.1 → mean L1-L4 = -1.325 ≈ -1.3
+        "spine_L1_L4": -1.3,
+        # Col fémoral: G -0.7, D -0.4 → moyenne -0.55
+        "femoral_neck_avg": -0.55,
+        # Hanche totale: G -0.7, D -0.7 → -0.7
+        "total_hip_avg": -0.7,
+        # Radius: G +0.7, D +1.1 → +0.9
+        "radius_total_avg": 0.9,
+    },
     "weights": {
         "spine_L1_L4": 0.40,
         "femoral_neck_avg": 0.30,
         "total_hip_avg": 0.15,
         "radius_total_avg": 0.15,
     },
-    "years_per_sd": 8.0,                # Heuristic, NOT from Kanis 2008 (not
-                                        # validated in young males). Treat as
-                                        # rough age-equivalence, not clinical.
-    "ref_age": 30,                      # Peak BMD age (young adult mean).
+    "years_per_sd": 8.0,                # Heuristic. With Z-scores this is a
+                                        # direct age-equivalence (Z = SD vs
+                                        # age-matched cohort).
+    "ref_age": 30,                      # Peak BMD age (kept for T-score use).
 }
 
 # DEXA total body composition (TBC, 2026-04-21). Gold standard for fat/lean.
@@ -919,11 +935,13 @@ def build_bio_age(measurements: list[dict], activity: list[dict] | None = None, 
     fat_pct_corrected = withings_fat_pct_corrected(float(fat_ratio["value"])) if fat_ratio else None
     composition_age = chrono + int(round((fat_pct_corrected - 22) / 2)) if fat_pct_corrected else chrono
 
-    # Skeleton: weighted bone age from DEXA T-scores (HBG MC scan 2026-04-21).
-    # bone_age = ref_age + (-T_weighted) * years_per_SD
-    # Negative T = lower BMD vs young adult mean = older bone equivalent.
-    weighted_t = sum(DEXA["tscores"][k] * DEXA["weights"][k] for k in DEXA["tscores"])
-    skeleton_age = int(round(DEXA["ref_age"] + (-weighted_t) * DEXA["years_per_sd"]))
+    # Skeleton: weighted bone age from DEXA Z-scores (HBG MC scan 2026-04-21).
+    # Z-score = SD vs age-matched cohort, so directly convertible to age:
+    #   bone_age = chrono + (-Z_weighted) * years_per_SD
+    # Negative Z = lower BMD than peers = older bone equivalent.
+    # T-scores remain in DEXA["tscores"] for clinical interpretation only.
+    weighted_z = sum(DEXA["zscores"][k] * DEXA["weights"][k] for k in DEXA["zscores"])
+    skeleton_age = int(round(chrono + (-weighted_z) * DEXA["years_per_sd"]))
 
     # Blood: PhenoAge Levine 2018 if labs available, else off.
     blood_age: int | None = None
