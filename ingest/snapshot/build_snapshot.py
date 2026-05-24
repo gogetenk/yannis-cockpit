@@ -42,10 +42,15 @@ WEGOVY_LADDER = [
     {"dose_mg": 2.4,  "weeks": (16, None)},
 ]
 TOLERANCE_KG = 0.8
-ASYMPTOTE_KG = 75.0
-START_KG = 86.3       # Withings reading at J1.
-GOMP_TAU_WEEKS = 22
+# Gompertz fit refit against Wilding 2021 STEP-1 (semaglutide 2.4 mg, 68 wk).
+# Cohort mean: -3% w4, -8% w16, -11.5% w28, -13.5% w40, -14.5% w52, -14.9% w68.
+# Applied to Yannis' baseline 86.6 kg → asymptotic floor ≈ 74 kg, NOT 75.
+# 75 kg is the user goal, reached around week 38 of the model (≈ early Jan 2027).
+ASYMPTOTE_KG = 74.0   # STEP-1 plateau extrapolated to Yannis' baseline.
+START_KG = 86.6       # Withings reading at J1.
+GOMP_TAU_WEEKS = 20   # cohort time constant; matches STEP-1 mid-curve.
 GOMP_SHAPE = 1.4
+GOAL_KG = 75.0
 MONTHS_FR = ["jan", "fév", "mar", "avr", "mai", "juin", "juil", "août", "sept", "oct", "nov", "déc"]
 
 
@@ -110,8 +115,8 @@ def weight_ideal(t_weeks: float) -> float:
     return ASYMPTOTE_KG + (START_KG - ASYMPTOTE_KG) * math.exp(-math.pow(t_weeks / GOMP_TAU_WEEKS, GOMP_SHAPE))
 
 
-def weight_projected(t_weeks: float, accel: float = 19) -> float:
-    """Personal projection from current trend (faster time-constant)."""
+def weight_projected(t_weeks: float, accel: float = 18) -> float:
+    """Personal projection: slightly faster tau if Yannis tracks ahead of mean."""
     return ASYMPTOTE_KG + (START_KG - ASYMPTOTE_KG) * math.exp(-math.pow(t_weeks / accel, GOMP_SHAPE))
 
 
@@ -175,13 +180,14 @@ def build_hero(measurements: list[dict], today: date) -> dict:
     ideal = weight_ideal(today_week)
     delta = current_kg - ideal
     status_key, status_label = status_band(delta)
-    # ETA at 75 kg via projected curve
+    # ETA at goal weight: first week the projected curve crosses 75 kg.
+    # Asymptote is now 74 kg so 75 is reachable in finite time.
     eta_week = None
-    for w in [today_week + 0.5 * i for i in range(0, 200)]:
-        if weight_projected(w) <= 75.05:
+    for w in [today_week + 0.5 * i for i in range(0, 400)]:
+        if weight_projected(w) <= GOAL_KG:
             eta_week = w
             break
-    eta_date = start + timedelta(days=int(eta_week * 7)) if eta_week else (start + timedelta(weeks=52))
+    eta_date = start + timedelta(days=int(eta_week * 7)) if eta_week else (start + timedelta(weeks=80))
     return {
         "status": status_key,
         "statusLabel": status_label,
@@ -247,26 +253,18 @@ def build_signals(yazio: list[dict], measurements: list[dict], activity: list[di
     if wt_start and wt_end:
         delta_kg = wt_end[0] - float(wt_start["value"])
         deficit_per_day = -(delta_kg * 6500) / 28  # positive when losing
-        intake_28d = [
-            y for y in yazio
-            if y.get("kcal") and y["kcal"] > 100
-            and win_start <= date.fromisoformat(y["date"]) <= today
-        ]
-        logged_n = len(intake_28d)
-        sub_bits = [f"poids {round(wt_start['value'], 1)}→{round(wt_end[0], 1)} kg sur 28 j", "coeff 6 500 (Wegovy)"]
-        if logged_n >= 5:
-            avg_logged_kcal = round(sum(float(y["kcal"]) for y in intake_28d) / logged_n)
-            sub_bits.append(f"{logged_n} j Yazio loggés Ø {avg_logged_kcal} kcal")
-        watch = abs(deficit_per_day) > 800  # >800 kcal/j = perte trop rapide
+        watch = deficit_per_day > 800  # >800 kcal/j = perte trop rapide
+        title = "Déficit calorique" if deficit_per_day >= 0 else "Surplus calorique"
+        label = "trop rapide" if watch else ("perte en cours" if deficit_per_day > 100 else "stable")
         out.append({
             "id": "deficit",
-            "title": "Déficit énergétique",
-            "sub": " · ".join(sub_bits),
-            "value": ("+" if deficit_per_day >= 0 else "−") + f"{abs(int(round(deficit_per_day))):,}".replace(",", " "),
-            "unit": "kcal / j moy.",
+            "title": title,
+            "sub": f"{'−' if delta_kg < 0 else '+'}{abs(delta_kg):.1f} kg sur 28 j".replace(".", ","),
+            "value": f"{abs(int(round(deficit_per_day))):,}".replace(",", " "),
+            "unit": "kcal/j",
             "status": "watch" if watch else "ok",
-            "status_label": "trop rapide" if watch else ("perte en cours" if deficit_per_day > 100 else "stable"),
-            "spark": _line_spark([float(y["kcal"]) for y in intake_28d[-14:]], "sage") if intake_28d else {"kind": "line", "color": "sage", "points": []},
+            "status_label": label,
+            "spark": {"kind": "line", "color": "sage", "points": []},
         })
 
     # --- Proteins / LBM ---
@@ -279,36 +277,17 @@ def build_signals(yazio: list[dict], measurements: list[dict], activity: list[di
         watch = g_per_kg < 2.0
         out.append({
             "id": "protein",
-            "title": "Protéines / LBM",
-            "sub": f"zone adéquate 2,0–2,4 · {len(proteins)} j moy · LBM {lbm:.1f} kg",
+            "title": "Protéines",
+            "sub": f"cible 2,0–2,4 g/kg masse maigre · {len(proteins)} j moy",
             "value": fmt_num(g_per_kg, 1),
-            "unit": "g/kg LBM",
+            "unit": "g/kg",
             "status": "watch" if watch else "ok",
             "status_label": "à surveiller" if watch else "conforme",
             "spark": _bar_spark(proteins[-13:], "ambre" if watch else "sage"),
         })
 
-    # --- Wegovy response: real vs STEP-1 predicted at today_week ---
-    start = date.fromisoformat(WEGOVY_START_ISO)
-    today_week = (today - start).days / 7
-    if today_week >= 1 and wt_end:
-        real_loss = START_KG - wt_end[0]
-        predicted_loss = START_KG - weight_ideal(today_week)
-        # STEP-1 trial cohort SD at week W ≈ 0.4 + 0.2 * sqrt(W) kg (Wilding
-        # NEJM 2021 supplementary). Floor at 1.0 kg to avoid early-week noise.
-        sd = max(1.0, 0.4 + 0.2 * math.sqrt(today_week))
-        z = (real_loss - predicted_loss) / sd
-        label = "sur trajectoire" if abs(z) < 1 else ("plus rapide" if z > 0 else "plus lent")
-        out.append({
-            "id": "wegovy_response",
-            "title": "Réponse Wegovy",
-            "sub": f"−{real_loss:.1f} kg réel vs −{predicted_loss:.1f} prédit STEP-1 W{today_week:.1f} · SD {sd:.1f} kg".replace(".", ","),
-            "value": ("+" if z >= 0 else "−") + fmt_num(abs(z), 1),
-            "unit": "z STEP-1",
-            "status": "ok" if abs(z) < 1.5 else "watch",
-            "status_label": label,
-            "spark": _line_spark([START_KG - float(p["kg"]) for p in real_weight_points(measurements, start, today)], "sage", end_dot=True),
-        })
+    # Wegovy response z-score removed: hero already conveys "X kg en avance/retard
+    # vs cible idéale", which is the human-readable form of the same z.
 
     # --- Sleep × HRV: needs hc_raw_record (Health Connect via Android app) ---
     hrv = _avg_hrv_from_hc(hc_records, today)

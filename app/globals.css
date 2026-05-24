@@ -389,7 +389,7 @@
        Shows position on the dose-escalation ladder, not effect.
        Effect is what the hero trajectory already shows.
        =========================================================== */
-    aside.wegovy {
+    .wegovy {
       background: var(--warm-cream-rest);
       margin: 16px var(--pad-screen) 0;
       border-radius: var(--rounded-banner);
@@ -983,7 +983,7 @@
       .chart-wrap svg.trajectory {
         height: 240px;
       }
-      aside.wegovy {
+      .wegovy {
         margin: 18px 28px 0;
       }
       main.grid {
@@ -1056,7 +1056,7 @@
       }
 
       /* WEGOVY: wider banner */
-      aside.wegovy {
+      .wegovy {
         margin: 24px 36px 0;
         padding: 16px 22px 18px;
         display: grid;
