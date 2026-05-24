@@ -808,12 +808,12 @@ def lifetime_cv_risk_full(markers: dict, age_yr: float, bmi: float | None = None
     NEJM). Stratified into 5 categories based on classic risk factors at age
     of assessment. Returns (pct_risk, category_label).
 
-    Categories (male, lifetime to age 80):
-      all_optimal: chol<180 + BP<120/80 + no DM + no smoking      → 5%
-      >=1_not_optimal: any in suboptimal range                    → 36%
-      >=1_elevated: any chol 200-239 OR BP 140-159/90-99          → 39%
-      >=1_major: chol>=240 OR BP>=160/100 OR DM OR smoker         → 50%
-      >=2_major: two or more major risk factors                   → 69%
+    Categories (male, lifetime risk to age 80, Berry NEJM 2012 Table 2):
+      all_optimal: chol<180 + BP<120/80 + no DM + no smoking      → 1.4%
+      >=1_not_optimal: any in suboptimal range                    → 5.6%
+      >=1_elevated: any chol 200-239 OR BP 140-159/90-99          → 35.6%
+      >=1_major: chol>=240 OR BP>=160/100 OR DM OR smoker         → 45.5%
+      >=2_major: two or more major risk factors                   → 68.9%
     """
     def get(code: str) -> float | None:
         r = markers.get(code)
