@@ -33,7 +33,18 @@ from typing import Any
 import requests
 
 
-VO2_MAX_HUAWEI = 45  # User-reported from Huawei Health, 2026-05-23
+CHRONO_AGE = 35
+# VO2max via Uth-Sørensen-Overgaard 2004 (Eur J Appl Physiol 91:111):
+#   VO2max ≈ 15.3 × HRmax / HRrest
+# HRmax = 208 − 0.7 × age (Tanaka 2001 meta-analysis, more accurate than 220−age).
+# Computed dynamically from huawei_daily.rest_hr_min trough; falls back to a
+# conservative Huawei in-app value if no HR data.
+VO2_MAX_FALLBACK = 45  # last manual Huawei reading 2026-05-23
+
+
+def vo2max_uth(rest_hr_min: float, age: float = CHRONO_AGE) -> float:
+    hr_max = 208 - 0.7 * age
+    return round(15.3 * hr_max / rest_hr_min, 1)
 
 WEGOVY_START_ISO = "2026-04-14"  # Yannis' first injection (J1).
 WEGOVY_LADDER = [
@@ -786,14 +797,16 @@ def build_bio_age(measurements: list[dict], activity: list[dict] | None = None, 
     # Else: HR repos source priority huawei_daily.rest_hr_min last 30d > HC last
     # 30d > Withings/Huawei via activity (legacy) > chrono fallback.
     vo2 = next((m for m in measurements if m["type_code"] == 123), None)
+    vo2_value: float | None = None
     if vo2:
-        delta = max(-10, min(10, int(round((float(vo2["value"]) - 40) / 2))))
-        cardio_age = max(20, chrono - delta)
-    elif VO2_MAX_HUAWEI:
-        delta = max(-10, min(10, int(round((VO2_MAX_HUAWEI - 40) / 2))))
-        cardio_age = max(20, chrono - delta)
+        vo2_value = float(vo2["value"])
     elif huawei_daily and (hr_min := _huawei_rest_hr_min_30d(huawei_daily, today)) is not None:
-        cardio_age = max(20, min(60, int(round(25 + (hr_min - 50) * 1.0))))
+        vo2_value = vo2max_uth(hr_min, chrono)
+    elif VO2_MAX_FALLBACK:
+        vo2_value = float(VO2_MAX_FALLBACK)
+    if vo2_value is not None:
+        delta = max(-10, min(10, int(round((vo2_value - 40) / 2))))
+        cardio_age = max(20, chrono - delta)
     elif hc_records and (hr_hc := _avg_hr_from_hc(hc_records, today)) is not None:
         cardio_age = max(20, min(60, int(round(25 + (hr_hc - 50) * 1.0))))
     elif activity:
@@ -908,7 +921,8 @@ def _huawei_5y_summary(huawei_daily: list[dict], today: date) -> dict:
         "stress_chronic_now_7d": round(sum(stress_7) / len(stress_7), 1) if stress_7 else None,
         "stress_baseline_90d": round(sum(stress_90) / len(stress_90), 1) if stress_90 else None,
         "sleep_deep_pct_30d": round(sum(deep_pct_30) / len(deep_pct_30), 1) if deep_pct_30 else None,
-        "vo2max_huawei": VO2_MAX_HUAWEI,
+        "vo2max_uth": vo2max_uth(min(rest_hr_30), CHRONO_AGE) if rest_hr_30 else None,
+        "vo2max_huawei_last_manual": VO2_MAX_FALLBACK,
     }
 
 
