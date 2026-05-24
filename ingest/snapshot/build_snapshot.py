@@ -99,10 +99,37 @@ DEXA_TBC = {
 BIA_FAT_OFFSET_PP = round(DEXA_TBC["fat_pct"] - 20.43, 2)  # = +3.87
 BIA_REFERENCE_DATE = DEXA_TBC["date"]
 
+# Per-segment correction coefficients (DEXA / Withings, computed on 2026-04-21).
+# Withings BIA biases are NOT uniform across segments:
+#   - Legs FAT massively underestimated (×1.55-1.61): impedance bias from
+#     hydration gradient + dense lean leg mass.
+#   - Trunk MUSCLE massively overestimated (×0.79): BIA conflates water +
+#     organs with skeletal muscle.
+# Withings type codes: 174 = fat_mass_segment, 175 = muscle_mass_segment.
+# Position codes: 2=L-arm, 3=R-arm, 10=L-leg, 11=R-leg, 12=trunk.
+BIA_SEGMENT_COEFFS = {
+    174: {  # fat per segment
+        2: 0.93, 3: 0.95,        # arms ≈ accurate (-5-7%)
+        10: 1.55, 11: 1.61,      # legs ×1.55-1.61 (big underestimate)
+        12: 0.97,                # trunk ≈ accurate (-3%)
+    },
+    175: {  # muscle per segment
+        2: 0.89, 3: 0.99,        # arms ≈ accurate
+        10: 0.94, 11: 0.94,      # legs slightly overestimated
+        12: 0.79,                # trunk -21% (BIA counts water/organs as muscle)
+    },
+}
+
 
 def withings_fat_pct_corrected(raw_pct: float) -> float:
-    """Apply DEXA-anchored additive offset to Withings BIA fat %."""
+    """Apply DEXA-anchored additive offset to Withings BIA global fat %."""
     return raw_pct + BIA_FAT_OFFSET_PP
+
+
+def withings_segment_corrected(raw_kg: float, type_code: int, position: int) -> float:
+    """Apply per-segment DEXA-anchored coefficient to a Withings BIA segment."""
+    coef = BIA_SEGMENT_COEFFS.get(type_code, {}).get(position, 1.0)
+    return raw_kg * coef
 MONTHS_FR = ["jan", "fév", "mar", "avr", "mai", "juin", "juil", "août", "sept", "oct", "nov", "déc"]
 
 
@@ -776,10 +803,11 @@ def _segment_subs(measurements: list[dict], type_code: int, unit: str, key_prefi
         series = sorted(by_pos[pos], key=lambda r: r["ts"])[-12:]
         if not series:
             continue
-        latest_v = float(series[-1]["value"])
-        first_v = float(series[0]["value"])
+        latest_v = withings_segment_corrected(float(series[-1]["value"]), type_code, pos)
+        first_v = withings_segment_corrected(float(series[0]["value"]), type_code, pos)
         delta = latest_v - first_v
-        pts = [{"date": fmt_date_fr(date.fromisoformat(r["ts"][:10])), "value": round(float(r["value"]), 2)} for r in series]
+        pts = [{"date": fmt_date_fr(date.fromisoformat(r["ts"][:10])),
+                "value": round(withings_segment_corrected(float(r["value"]), type_code, pos), 2)} for r in series]
         sign = "+" if delta >= 0 else "−"
         out.append({
             "key": f"{key_prefix}_{pos}",
