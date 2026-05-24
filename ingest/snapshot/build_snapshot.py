@@ -752,8 +752,8 @@ def prevent_30y_total_cvd(markers: dict, sbp: float | None, dbp: float | None,
     smoking = False  # à wire si on l'a un jour
 
     mult = 1.0
-    # Age (centered at 35; +10 yr ≈ 1.5×)
-    mult *= 1.5 ** ((age_yr - 35) / 10)
+    # Age (centered at 35; PREVENT ~2.5× per decade for 30y total CVD)
+    mult *= 2.5 ** ((age_yr - 35) / 10)
     # Non-HDL cholesterol (ref 130 mg/dL)
     if non_hdl > 130:
         mult *= 1.3 ** ((non_hdl - 130) / 30)
@@ -785,7 +785,10 @@ def prevent_30y_total_cvd(markers: dict, sbp: float | None, dbp: float | None,
     if on_bp_treatment:
         mult *= 1.1
 
-    return min(99.0, round(7.5 * mult, 1))
+    # Anchor: 4.0% baseline for an optimal 35M (PREVENT 2024 reference).
+    # The previous 7.5% anchor systematically overestimated 30y total CVD.
+    base_pct = 4.0
+    return min(99.0, round(base_pct * mult, 1))
 
 
 def prevent_band(pct: float) -> tuple[str, str]:
