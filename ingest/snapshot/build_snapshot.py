@@ -502,23 +502,51 @@ def build_ai_brief(payload: dict, full_context: dict | None = None) -> str | Non
         print("  (skipping ai_brief: anthropic SDK not installed)", file=sys.stderr)
         return None
 
+    # Pre-compute explicit facts so the model doesn't have to derive them
+    # (and can't get them wrong). Pass status of every signal as "conforme"
+    # or "à surveiller" verbatim.
+    hero = payload.get("hero", {})
+    wegovy = payload.get("wegovy", {})
+    signals = payload.get("signals", [])
+    facts = {
+        "poids_actuel_kg": hero.get("current_kg"),
+        "poids_initial_kg": 86.6,
+        "kg_perdus_depuis_J1": round(86.6 - float(hero.get("current_kg") or 86.6), 1),
+        "status_hero": hero.get("statusLabel"),
+        "ecart_vs_courbe_ideale_kg": hero.get("delta_kg"),
+        "wegovy_jour": wegovy.get("day_since_start"),
+        "wegovy_dose_actuelle_mg": wegovy.get("current_dose_mg"),
+        "wegovy_prochaine_titration_mg": wegovy.get("next_dose_mg"),
+        "wegovy_prochaine_titration_dans_sem": wegovy.get("next_in_weeks"),
+        "signaux": [
+            {
+                "nom": s.get("title"),
+                "valeur": f"{s.get('value')} {s.get('unit')}".strip(),
+                "statut": s.get("status_label"),
+                "conforme": s.get("status") == "ok",
+            }
+            for s in signals
+        ],
+        "biology": payload.get("biology"),
+    }
+
     system_prompt = (
-        "Tu es l'analyste du cockpit santé personnel de Yannis (35 ans, homme, "
-        "173 cm, sous Wegovy J+40, programme de perte de poids). "
-        "Tu as accès au JSON complet du dashboard et aux données brutes. "
-        "À chaque appel tu produis UNE phrase française de 15 à 30 mots, "
-        "factuelle, actionnable, qui corrobore le statusLabel du hero. "
-        "Tu peux pointer le facteur dominant (positif ou négatif) et "
-        "suggérer une action très concrète si dérive. "
-        "Style médecin-pair de confiance: pas de cheerleading, pas d'alarmisme, "
-        "pas de 'vous devriez'. Pas d'em-dash (utiliser virgule, deux-points "
-        "ou point). Pas de jargon (LBM, z-score, SD). "
-        "Sors UNIQUEMENT la phrase finale, sans préambule ni guillemets."
+        "Tu es l'analyste du cockpit santé de Yannis (35 ans, homme, 173 cm). "
+        "À chaque appel, tu produis UNE phrase française de 15 à 30 mots, "
+        "factuelle, ancrée DANS LES FAITS fournis ci-dessous. "
+        "\n\nRÈGLES STRICTES:\n"
+        "- Tu n'inventes JAMAIS de chiffres, dates, doses, ou plans.\n"
+        "- Si tous les signaux sont 'conforme', dis-le sans suggérer d'action.\n"
+        "- Si un signal est 'à surveiller', cite-le explicitement avec son nom.\n"
+        "- N'utilise QUE les valeurs présentes dans le bloc facts.\n"
+        "- Pas d'em-dash. Pas de jargon (LBM, z-score, SD). Pas de cheerleading.\n"
+        "- Pas de 'vous devriez', 'il faut', 'augmenter à X'. Reste descriptif.\n"
+        "- Pas de préambule, pas de guillemets, juste la phrase.\n"
     )
 
     user_msg = json.dumps({
-        "dashboard_payload": payload,
-        "raw_context": full_context or {},
+        "facts": facts,
+        "raw_context_supplementaire": full_context or {},
     }, ensure_ascii=False, default=str)
 
     try:
