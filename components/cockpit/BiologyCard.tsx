@@ -11,8 +11,8 @@ export function BiologyCard({ bio }: Props) {
       </div>
       <div className="biology-figures biology-figures--single">
         <div className="biology-fig">
-          <div className="biology-fig-value">{bio.lifetime_cv_risk_pct} <span className="biology-fig-unit">%</span></div>
-          <div className="biology-fig-label">{bio.lifetime_cv_risk_label}</div>
+          <div className="biology-fig-value">{bio.lifetime_cv_risk_pct} <span className="biology-fig-unit">% à vie</span></div>
+          <div className="biology-fig-label">{bio.lifetime_cv_risk_driver ?? bio.lifetime_cv_risk_label}</div>
         </div>
       </div>
     </Link>

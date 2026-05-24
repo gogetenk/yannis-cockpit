@@ -92,6 +92,7 @@ export interface BiologySummary {
   phenoage_delta: number;
   lifetime_cv_risk_pct: number;
   lifetime_cv_risk_label: string;
+  lifetime_cv_risk_driver: string | null;
   days_since_last: number;
   days_until_next: number;
   next_recommended_date: string;

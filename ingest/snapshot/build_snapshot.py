@@ -508,7 +508,13 @@ def phenoage_levine(markers: dict, chrono_yr: float) -> float | None:
     return 141.50 + math.log(-0.00553 * math.log(max(1 - M, 1e-9))) / 0.09165
 
 
-def lifetime_cv_risk(markers: dict, age_yr: float, bmi: float | None = None) -> tuple[int, str]:
+def lifetime_cv_risk(markers: dict, age_yr: float, bmi: float | None = None) -> tuple[int, str]:  # type: ignore[override]
+    """Backwards-compat wrapper; full version below returns (pct, label, driver)."""
+    pct, label, _ = lifetime_cv_risk_full(markers, age_yr, bmi)
+    return pct, label
+
+
+def lifetime_cv_risk_full(markers: dict, age_yr: float, bmi: float | None = None) -> tuple[int, str, str | None]:
     """ACC/AHA Lifetime CV Risk for adults <50 (Lloyd-Jones 2006, Berry 2012
     NEJM). Stratified into 5 categories based on classic risk factors at age
     of assessment. Returns (pct_risk, category_label).
@@ -533,25 +539,25 @@ def lifetime_cv_risk(markers: dict, age_yr: float, bmi: float | None = None) -> 
     non_smoker = True
     diabetes = (hba1c is not None and hba1c >= 6.5) or (glu is not None and glu >= 126)
 
-    major = 0
-    elevated = 0
-    not_optimal = 0
+    major: list[str] = []
+    elevated: list[str] = []
+    not_optimal: list[str] = []
     if chol is not None:
-        if chol >= 240: major += 1
-        elif chol >= 200: elevated += 1
-        elif chol >= 180: not_optimal += 1
-    if diabetes: major += 1
-    if not non_smoker: major += 1
+        if chol >= 240: major.append(f"cholestérol {int(chol)} mg/dL")
+        elif chol >= 200: elevated.append(f"cholestérol {int(chol)} mg/dL")
+        elif chol >= 180: not_optimal.append(f"cholestérol {int(chol)} mg/dL")
+    if diabetes: major.append("diabète")
+    if not non_smoker: major.append("tabac")
 
-    if major >= 2:
-        return 69, "≥2 facteurs majeurs"
-    if major >= 1:
-        return 50, "≥1 facteur majeur"
-    if elevated >= 1:
-        return 39, "≥1 facteur élevé"
-    if not_optimal >= 1:
-        return 36, "≥1 facteur sous-optimal"
-    return 5, "tous optimaux"
+    if len(major) >= 2:
+        return 69, "≥2 facteurs majeurs", " + ".join(major[:2])
+    if len(major) >= 1:
+        return 50, "facteur majeur", major[0]
+    if elevated:
+        return 39, "facteur élevé", elevated[0]
+    if not_optimal:
+        return 36, "facteur sous-optimal", not_optimal[0]
+    return 5, "tous optimaux", None
 
 
 def build_bio_age(measurements: list[dict], activity: list[dict] | None = None, labs: tuple | None = None) -> dict:
@@ -1247,7 +1253,7 @@ def build_biology(panels: list[dict], results: list[dict], today: date, chrono_y
     pa = phenoage_levine(markers, chrono_yr)
     if pa is None:
         return None
-    risk_pct, risk_label = lifetime_cv_risk(markers, chrono_yr)
+    risk_pct, risk_label, risk_driver = lifetime_cv_risk_full(markers, chrono_yr)
     coll = datetime.fromisoformat(latest_panel["collected_at"].replace("Z", "+00:00")).date()
     days_since = (today - coll).days
     next_recommended = coll + timedelta(days=180)
@@ -1260,6 +1266,7 @@ def build_biology(panels: list[dict], results: list[dict], today: date, chrono_y
         "phenoage_delta": round(pa - chrono_yr, 1),
         "lifetime_cv_risk_pct": risk_pct,
         "lifetime_cv_risk_label": risk_label,
+        "lifetime_cv_risk_driver": risk_driver,
         "days_since_last": days_since,
         "days_until_next": days_until_next,
         "next_recommended_date": next_recommended.isoformat(),
