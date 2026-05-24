@@ -1431,6 +1431,10 @@ header.detail-header .detail-back:focus-visible {
   align-items: center;
   padding: 6px 0;
 }
+.biology-figures--single {
+  display: flex;
+  padding: 4px 0 2px;
+}
 .biology-divider {
   background: var(--sage-mist);
   height: 36px;
