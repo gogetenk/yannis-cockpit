@@ -47,6 +47,7 @@ def vo2max_uth(rest_hr_min: float, age: float = CHRONO_AGE) -> float:
     return round(15.3 * hr_max / rest_hr_min, 1)
 
 WEGOVY_START_ISO = "2026-04-14"  # Yannis' first injection (J1).
+WEGOVY_INJECTION_WEEKDAY = 5  # Saturday (Mon=0..Sun=6). User-configured.
 WEGOVY_LADDER = [
     {"dose_mg": 0.25, "weeks": (0, 4)},
     {"dose_mg": 0.5,  "weeks": (4, 8)},
@@ -345,6 +346,20 @@ def build_wegovy(today: date) -> dict:
     next_dose = WEGOVY_LADDER[step_index]["dose_mg"] if step_index < len(WEGOVY_LADDER) else current["dose_mg"]
     cur_end_week = current["weeks"][1] if current["weeks"][1] is not None else week
     next_in_weeks = max(0, round(cur_end_week - week))
+
+    # Days since last injection (modulo 7 from configured injection weekday).
+    today_weekday = today.weekday()
+    days_since_inj = (today_weekday - WEGOVY_INJECTION_WEEKDAY) % 7
+    days_to_next_inj = (7 - days_since_inj) % 7
+    if days_to_next_inj == 0:
+        days_to_next_inj = 7
+    if days_since_inj == 0:
+        last_inj_label = "aujourd'hui"
+    elif days_since_inj == 1:
+        last_inj_label = "hier"
+    else:
+        last_inj_label = f"il y a {days_since_inj} j"
+
     return {
         "day_since_start": day,
         "current_dose_mg": current["dose_mg"],
@@ -352,6 +367,9 @@ def build_wegovy(today: date) -> dict:
         "ladder": ladder,
         "next_dose_mg": next_dose,
         "next_in_weeks": next_in_weeks,
+        "days_since_last_injection": days_since_inj,
+        "days_to_next_injection": days_to_next_inj,
+        "last_injection_label": last_inj_label,
     }
 
 
@@ -418,18 +436,21 @@ def build_signals(yazio: list[dict], measurements: list[dict], activity: list[di
     # Wegovy response z-score removed: hero already conveys "X kg en avance/retard
     # vs cible idéale", which is the human-readable form of the same z.
 
-    # --- Sleep debt vs optimum 7.5h (Hirshkowitz NSF 2015, Walker 2017) ---
+    # --- Sleep vs optimum 7.5h (Hirshkowitz NSF 2015) ---
     sleep_pts = _sleep_minutes_per_day(hc_records, today, 14)
     if len(sleep_pts) >= 3:
         last7 = sleep_pts[-7:]
         avg_min = sum(v for _, v in last7) / len(last7)
-        deficit = (450 - avg_min) * len(last7) / 60  # hours under 7.5h optimum
+        # Positive => slept LESS than target (debt). Negative => surplus.
+        debt_h = (450 - avg_min) * len(last7) / 60
         watch = avg_min < 400  # <6h40 = alerte
+        in_debt = debt_h > 0
+        title = "Dette sommeil" if in_debt else "Sommeil au-dessus"
         out.append({
             "id": "sleep",
-            "title": "Dette sommeil",
+            "title": title,
             "sub": "optimum 7 h 30",
-            "value": f"{'+' if deficit < 0 else '−'}{abs(int(deficit))} h",
+            "value": f"{abs(int(round(debt_h)))} h",
             "unit": f"/ {len(last7)} j",
             "status": "watch" if watch else "ok",
             "status_label": "à surveiller" if watch else "conforme",

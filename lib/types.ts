@@ -30,6 +30,9 @@ export interface WegovyTitration {
   ladder: { dose_mg: number; status: "done" | "current" | "upcoming" }[];
   next_dose_mg: number;
   next_in_weeks: number;
+  days_since_last_injection?: number;
+  days_to_next_injection?: number;
+  last_injection_label?: string;
 }
 
 export type SignalKind = "ok" | "watch";

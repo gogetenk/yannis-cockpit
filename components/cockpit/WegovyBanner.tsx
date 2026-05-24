@@ -14,7 +14,7 @@ export function WegovyBanner({ wegovy }: Props) {
     <Link href="/detail/wegovy" className="wegovy wegovy--link" aria-labelledby="wegovy-label">
       <div className="wegovy-top">
         <span className="label label--ink" id="wegovy-label">Wegovy · J + {wegovy.day_since_start} <span className="card-chevron" aria-hidden>›</span></span>
-        <span className="now"><strong>{fmtDose(wegovy.current_dose_mg)} mg</strong> · aujourd&apos;hui</span>
+        <span className="now"><strong>{fmtDose(wegovy.current_dose_mg)} mg</strong> · {wegovy.last_injection_label ?? "dernière dose"}</span>
       </div>
 
       <svg className="wegovy-ladder" viewBox="0 0 300 44" role="img"
@@ -52,7 +52,12 @@ export function WegovyBanner({ wegovy }: Props) {
       </svg>
 
       <div className="wegovy-foot">
-        <span>prochaine titration · <strong>{fmtDose(wegovy.next_dose_mg)} mg</strong> dans {wegovy.next_in_weeks} sem.</span>
+        <span>
+          {wegovy.days_to_next_injection !== undefined && (
+            <>prochaine injection {wegovy.days_to_next_injection === 1 ? "demain" : `dans ${wegovy.days_to_next_injection} j`} · </>
+          )}
+          prochaine titration · <strong>{fmtDose(wegovy.next_dose_mg)} mg</strong> dans {wegovy.next_in_weeks} sem.
+        </span>
       </div>
     </Link>
   );
