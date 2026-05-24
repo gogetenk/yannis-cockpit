@@ -5,39 +5,84 @@ interface Props { trajectory: Tr; height?: number }
 const VBX = 700;
 const VBY = 280;
 
-function mkScales(t: Tr) {
+interface Pt { date: string; value: number }
+function isFinitePoint(p: { date: string; value: number | null | undefined }): p is Pt {
+  return p.value !== null && p.value !== undefined && Number.isFinite(p.value);
+}
+
+function mkScales(yMinScale: number, yMaxScale: number, nPoints: number) {
   const xPad = 36;
   const xMin = xPad;
   const xMax = VBX - xPad;
   const yMin = 24;
   const yMax = VBY - 36;
-  const n = t.points.length;
-  const xAt = (i: number) => xMin + (i / Math.max(1, n - 1)) * (xMax - xMin);
-  const yAt = (v: number) => yMin + ((t.y_max - v) / (t.y_max - t.y_min)) * (yMax - yMin);
+  const xAt = (i: number) => xMin + (i / Math.max(1, nPoints - 1)) * (xMax - xMin);
+  const yAt = (v: number) => yMin + ((yMaxScale - v) / (yMaxScale - yMinScale)) * (yMax - yMin);
   return { xAt, yAt, xMin, xMax, yMin, yMax };
 }
 
 export function DetailTrajectory({ trajectory: t }: Props) {
-  const { xAt, yAt, xMin, xMax, yMin, yMax } = mkScales(t);
+  // Filter null / non-finite points before drawing — bare API data may carry
+  // gaps that would otherwise produce isolated spikes on an empty band.
+  const points: Pt[] = (t.points as Array<{ date: string; value: number | null | undefined }>).filter(isFinitePoint);
+  const ideal: Pt[] | undefined = t.ideal
+    ? (t.ideal as Array<{ date: string; value: number | null | undefined }>).filter(isFinitePoint)
+    : undefined;
 
-  const realPath = t.points.map((p, i) => `${i === 0 ? "M" : "L"} ${xAt(i).toFixed(1)} ${yAt(p.value).toFixed(1)}`).join(" ");
-  const idealPath = t.ideal?.map((p, i) => `${i === 0 ? "M" : "L"} ${xAt(i).toFixed(1)} ${yAt(p.value).toFixed(1)}`).join(" ");
-  const tolPath = t.ideal && t.tolerance
+  if (points.length === 0) {
+    return (
+      <figure className="detail-trajectory" aria-label="Trajectoire indisponible">
+        <p className="detail-empty" style={{ padding: "24px 8px" }}>Pas de mesures sur la fenêtre.</p>
+      </figure>
+    );
+  }
+
+  // Auto-calibrate Y to actual data range when declared y_min/y_max are far
+  // outside, otherwise the line collapses into a flat ribbon. We keep the
+  // declared range only if it brackets the data tightly (≤ 25% padding above
+  // data span on either side), else we recompute around data + ideal + target.
+  const ys = points.map(p => p.value);
+  if (ideal) ys.push(...ideal.map(p => p.value));
+  if (t.target) ys.push(t.target.value);
+  const dataMin = Math.min(...ys);
+  const dataMax = Math.max(...ys);
+  const dataSpan = Math.max(1e-6, dataMax - dataMin);
+  const declaredSpan = Math.max(1e-6, t.y_max - t.y_min);
+  const padBelow = dataMin - t.y_min;
+  const padAbove = t.y_max - dataMax;
+  const tooMuchPad = padBelow > dataSpan * 0.5 || padAbove > dataSpan * 0.5 || declaredSpan > dataSpan * 3;
+
+  let yMinScale: number;
+  let yMaxScale: number;
+  if (tooMuchPad) {
+    const margin = dataSpan * 0.18 || 1;
+    yMinScale = dataMin - margin;
+    yMaxScale = dataMax + margin;
+  } else {
+    yMinScale = t.y_min;
+    yMaxScale = t.y_max;
+  }
+
+  const n = points.length;
+  const { xAt, yAt, xMin, xMax, yMin, yMax } = mkScales(yMinScale, yMaxScale, n);
+
+  const realPath = points.map((p, i) => `${i === 0 ? "M" : "L"} ${xAt(i).toFixed(1)} ${yAt(p.value).toFixed(1)}`).join(" ");
+  const idealPath = ideal?.map((p, i) => `${i === 0 ? "M" : "L"} ${xAt(i).toFixed(1)} ${yAt(p.value).toFixed(1)}`).join(" ");
+  const tolPath = ideal && t.tolerance
     ? (() => {
-        const up = t.ideal!.map((p, i) => `${i === 0 ? "M" : "L"} ${xAt(i).toFixed(1)} ${yAt(p.value + t.tolerance!).toFixed(1)}`).join(" ");
-        const down = [...t.ideal!].reverse().map((p, i) => `L ${xAt(t.ideal!.length - 1 - i).toFixed(1)} ${yAt(p.value - t.tolerance!).toFixed(1)}`).join(" ");
+        const up = ideal.map((p, i) => `${i === 0 ? "M" : "L"} ${xAt(i).toFixed(1)} ${yAt(p.value + t.tolerance!).toFixed(1)}`).join(" ");
+        const down = [...ideal].reverse().map((p, i) => `L ${xAt(ideal.length - 1 - i).toFixed(1)} ${yAt(p.value - t.tolerance!).toFixed(1)}`).join(" ");
         return `${up} ${down} Z`;
       })()
     : null;
 
-  const last = t.points[t.points.length - 1];
-  const lastX = xAt(t.points.length - 1);
+  const last = points[points.length - 1];
+  const lastX = xAt(points.length - 1);
   const lastY = yAt(last.value);
 
-  // Y-axis ticks: 3 evenly spaced.
-  const yTicks = [t.y_max, (t.y_max + t.y_min) / 2, t.y_min];
+  // Y-axis ticks: 3 evenly spaced on the visible range.
+  const yTicks = [yMaxScale, (yMaxScale + yMinScale) / 2, yMinScale];
   // X-axis ticks: up to 4 unique indices (degenerate if <4 points).
-  const n = t.points.length;
   const xIdxSet = new Set(
     n <= 1 ? [0]
     : n === 2 ? [0, 1]
@@ -45,7 +90,7 @@ export function DetailTrajectory({ trajectory: t }: Props) {
     : [0, Math.floor((n - 1) / 3), Math.floor(2 * (n - 1) / 3), n - 1]
   );
   const xIdx = [...xIdxSet].sort((a, b) => a - b);
-  const xTicks = xIdx.map(i => ({ x: xAt(i), label: t.points[i]?.date ?? "" }));
+  const xTicks = xIdx.map(i => ({ x: xAt(i), label: points[i]?.date ?? "" }));
 
   const targetY = t.target ? yAt(t.target.value) : null;
 
@@ -75,7 +120,7 @@ export function DetailTrajectory({ trajectory: t }: Props) {
             <line x1={xMin} y1={targetY} x2={xMax} y2={targetY}
                   strokeWidth="0.8" strokeDasharray="3 4" opacity="0.7"
                   style={{ stroke: "var(--deep-sage)" }} vectorEffect="non-scaling-stroke" />
-            <text x={xMin + 4} y={targetY - 6} textAnchor="start" fontSize="11"
+            <text x={xMin + 30} y={targetY - 6} textAnchor="start" fontSize="11"
                   style={{ fill: "var(--sage-ash)", fontVariantNumeric: "tabular-nums" }}>
               {t.target.label}
             </text>

@@ -1268,7 +1268,10 @@ header.detail-header .detail-back:focus-visible {
   gap: 12px;
 }
 @media (min-width: 700px) {
-  .subs { grid-template-columns: repeat(3, 1fr); }
+  /* 2 columns at ≥700px keeps the grid balanced when N sub-trajectories is
+     even (composition has 10) or odd-with-spillover. Pages with few subs
+     (cardio: 3) still read fine because each tile widens gracefully. */
+  .subs { grid-template-columns: repeat(2, 1fr); }
 }
 .sub {
   background: var(--warm-cream-rest);
