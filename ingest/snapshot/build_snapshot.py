@@ -434,6 +434,62 @@ def build_signals(yazio: list[dict], measurements: list[dict], activity: list[di
     return out
 
 
+def build_ai_brief(payload: dict, full_context: dict | None = None) -> str | None:
+    """Call Claude Haiku 4.5 with the FULL snapshot payload + raw data context
+    and ask for a 15-30 word actionable French analysis. Returns None if no
+    API key configured.
+
+    The model has access to everything in `payload` (hero, signals, biology,
+    bio_age, pillars, wegovy, action_today) plus a compact summary of the
+    underlying raw measurements/labs in `full_context` so it can corroborate
+    or contradict the dashboard-level conclusions.
+    """
+    key = os.environ.get("ANTHROPIC_API_KEY")
+    if not key:
+        print("  (skipping ai_brief: ANTHROPIC_API_KEY not set)", file=sys.stderr)
+        return None
+    try:
+        import anthropic
+    except ImportError:
+        print("  (skipping ai_brief: anthropic SDK not installed)", file=sys.stderr)
+        return None
+
+    system_prompt = (
+        "Tu es l'analyste du cockpit santé personnel de Yannis (35 ans, homme, "
+        "173 cm, sous Wegovy J+40, programme de perte de poids). "
+        "Tu as accès au JSON complet du dashboard et aux données brutes. "
+        "À chaque appel tu produis UNE phrase française de 15 à 30 mots, "
+        "factuelle, actionnable, qui corrobore le statusLabel du hero. "
+        "Tu peux pointer le facteur dominant (positif ou négatif) et "
+        "suggérer une action très concrète si dérive. "
+        "Style médecin-pair de confiance: pas de cheerleading, pas d'alarmisme, "
+        "pas de 'vous devriez'. Pas d'em-dash (utiliser virgule, deux-points "
+        "ou point). Pas de jargon (LBM, z-score, SD). "
+        "Sors UNIQUEMENT la phrase finale, sans préambule ni guillemets."
+    )
+
+    user_msg = json.dumps({
+        "dashboard_payload": payload,
+        "raw_context": full_context or {},
+    }, ensure_ascii=False, default=str)
+
+    try:
+        client = anthropic.Anthropic(api_key=key)
+        resp = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=200,
+            system=system_prompt,
+            messages=[{"role": "user", "content": user_msg}],
+        )
+        text = resp.content[0].text.strip() if resp.content else ""
+        # Strip leading/trailing quotes the model sometimes adds
+        text = text.strip('"\u201c\u201d').strip()
+        return text or None
+    except Exception as e:
+        print(f"  (ai_brief failed: {e})", file=sys.stderr)
+        return None
+
+
 def build_action_today(signals: list[dict]) -> str | None:
     """Pick the single most actionable signal and turn it into a 1-line action.
     Returns None if everything is conforme."""
@@ -1580,6 +1636,20 @@ def main() -> None:
         "pillars": build_pillars(yazio, measurements, activity, hc_records, today),
         "pillar_detail": pillar_detail,
     }
+    # AI brief: 1-sentence analysis from Claude Haiku given full context.
+    raw_context = {
+        "n_weight_measurements": sum(1 for m in measurements if m["type_code"] == 1),
+        "n_bp_measurements": sum(1 for m in measurements if m["type_code"] in (9, 10)),
+        "n_yazio_days": len(yazio),
+        "n_hc_records": len(hc_records),
+        "latest_labs": [
+            {"code": r["marker_code"], "value": r.get("value_num"), "unit": r.get("unit"), "flag": r.get("flag")}
+            for r in results
+            if labs and r["panel_id"] == labs[0]["id"]
+        ] if labs else [],
+        "lab_panel_date": labs[0]["collected_at"] if labs else None,
+    }
+    payload["ai_brief"] = build_ai_brief(payload, raw_context)
 
     sb_upsert(
         [{"snapshot_date": today.isoformat(), "payload": payload}],

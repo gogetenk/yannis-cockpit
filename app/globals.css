@@ -1418,6 +1418,40 @@ header.detail-header .detail-back:focus-visible {
   margin-left: 4px;
   font-size: 14px;
 }
+
+/* AI brief card — between hero and signals on home. */
+.ai-card {
+  background: var(--warm-cream-rest);
+  margin: 16px var(--pad-screen);
+  border-radius: var(--rounded-banner);
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border-left: 3px solid var(--deep-sage);
+}
+.ai-card-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--sage-ash);
+}
+.ai-card-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--deep-sage);
+  display: inline-block;
+}
+.ai-card-text {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--sage-ink);
+}
 .wegovy.wegovy--link:focus-visible {
   outline: 2px solid var(--deep-sage);
   outline-offset: 2px;

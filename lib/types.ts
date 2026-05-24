@@ -185,6 +185,7 @@ export interface CockpitSnapshot {
   wegovy: WegovyTitration;
   signals: Signal[];
   action_today?: string | null;
+  ai_brief?: string | null;
   bio_age: BioAge;
   biology?: BiologySummary;
   pillars: PillarTile[];
