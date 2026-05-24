@@ -59,8 +59,13 @@ private fun Screen() {
     val repo = remember { HealthRepo(ctx) }
     val settings = remember { Settings(ctx) }
     var status by remember { mutableStateOf("loading…") }
-    var lastSync by remember { mutableStateOf<Instant?>(null) }
     var permsOk by remember { mutableStateOf(false) }
+    var syncing by remember { mutableStateOf(false) }
+
+    // Live observation of DataStore — UI auto-refreshes when SyncWorker writes.
+    val lastSync by settings.lastSyncFlow.collectAsState(initial = null)
+    val lastStatus by settings.lastStatusFlow.collectAsState(initial = null)
+    val lastInserted by settings.lastInsertedFlow.collectAsState(initial = 0L)
 
     val permLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
         contract = PermissionController.createRequestPermissionResultContract()
@@ -76,15 +81,24 @@ private fun Screen() {
             HealthRepo.Status.AVAILABLE -> {
                 permsOk = repo.hasAllPermissions()
                 status = if (permsOk) "prêt" else "permissions à accorder"
-                lastSync = settings.lastSync()
             }
         }
+    }
+
+    // Observe the OneTime work to know when sync finishes and clear `syncing` flag.
+    LaunchedEffect(syncing) {
+        if (!syncing) return@LaunchedEffect
+        // Simple timeout — actual completion will refresh lastSync via the Flow above.
+        kotlinx.coroutines.delay(15_000)
+        syncing = false
     }
 
     Scaffold(topBar = { TopAppBar(title = { Text("Cockpit Sync") }) }) { pad ->
         Column(Modifier.padding(pad).padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("Statut : $status", style = MaterialTheme.typography.bodyLarge)
             lastSync?.let { Text("Dernier sync : ${fmt(it)}") }
+            lastStatus?.let { Text("Résultat : $it") }
+            if (lastInserted > 0L) Text("Inserts cumulés : $lastInserted")
 
             if (repo.status() == HealthRepo.Status.AVAILABLE && !permsOk) {
                 Button(onClick = { permLauncher.launch(Permissions.PERMISSIONS) }) {
@@ -92,13 +106,15 @@ private fun Screen() {
                 }
             }
             if (permsOk) {
-                Button(onClick = {
-                    scope.launch {
-                        status = "sync en cours…"
-                        SyncWorker.runOnce(ctx)
-                        status = "sync lancé, suit les logs"
+                Button(
+                    enabled = !syncing,
+                    onClick = {
+                        scope.launch {
+                            syncing = true
+                            SyncWorker.runOnce(ctx)
+                        }
                     }
-                }) { Text("Synchroniser maintenant") }
+                ) { Text(if (syncing) "Synchronisation…" else "Synchroniser maintenant") }
             }
 
             Spacer(Modifier.height(20.dp))
