@@ -36,8 +36,15 @@ export function DetailTrajectory({ trajectory: t }: Props) {
 
   // Y-axis ticks: 3 evenly spaced.
   const yTicks = [t.y_max, (t.y_max + t.y_min) / 2, t.y_min];
-  // X-axis ticks: 4 from points (first, ~1/3, ~2/3, last) — use date label.
-  const xIdx = [0, Math.floor((t.points.length - 1) / 3), Math.floor(2 * (t.points.length - 1) / 3), t.points.length - 1];
+  // X-axis ticks: up to 4 unique indices (degenerate if <4 points).
+  const n = t.points.length;
+  const xIdxSet = new Set(
+    n <= 1 ? [0]
+    : n === 2 ? [0, 1]
+    : n === 3 ? [0, 1, 2]
+    : [0, Math.floor((n - 1) / 3), Math.floor(2 * (n - 1) / 3), n - 1]
+  );
+  const xIdx = [...xIdxSet].sort((a, b) => a - b);
   const xTicks = xIdx.map(i => ({ x: xAt(i), label: t.points[i]?.date ?? "" }));
 
   const targetY = t.target ? yAt(t.target.value) : null;
@@ -68,7 +75,7 @@ export function DetailTrajectory({ trajectory: t }: Props) {
             <line x1={xMin} y1={targetY} x2={xMax} y2={targetY}
                   strokeWidth="0.8" strokeDasharray="3 4" opacity="0.7"
                   style={{ stroke: "var(--deep-sage)" }} vectorEffect="non-scaling-stroke" />
-            <text x={xMax - 4} y={targetY - 6} textAnchor="end" fontSize="11"
+            <text x={xMin + 4} y={targetY - 6} textAnchor="start" fontSize="11"
                   style={{ fill: "var(--sage-ash)", fontVariantNumeric: "tabular-nums" }}>
               {t.target.label}
             </text>

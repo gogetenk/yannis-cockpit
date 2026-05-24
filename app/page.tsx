@@ -16,7 +16,7 @@ export default async function Page() {
     <>
       <AppHeader today={data.today} />
       <Hero hero={data.hero} />
-      <SignalsSection signals={data.signals} />
+      <SignalsSection signals={data.signals} action={data.action_today} />
       <WegovyBanner wegovy={data.wegovy} />
       {data.biology && <BiologyCard bio={data.biology} />}
       <main className="grid" aria-label="Piliers santé">

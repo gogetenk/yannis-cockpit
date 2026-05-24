@@ -1,6 +1,6 @@
 import type { Signal, SignalSpark } from "@/lib/types";
 
-interface Props { signals: Signal[] }
+interface Props { signals: Signal[]; action?: string | null }
 
 function Spark({ spark }: { spark: SignalSpark }) {
   const colorVar = spark.color === "ambre" ? "var(--ambre-brule)" : "var(--deep-sage)";
@@ -36,7 +36,7 @@ function Spark({ spark }: { spark: SignalSpark }) {
   );
 }
 
-export function SignalsSection({ signals }: Props) {
+export function SignalsSection({ signals, action }: Props) {
   if (!signals.length) return null;
   return (
     <section className="signals" aria-labelledby="signals-heading">
@@ -60,6 +60,12 @@ export function SignalsSection({ signals }: Props) {
           </li>
         ))}
       </ol>
+      {action && (
+        <div className="action-today" role="note">
+          <span className="action-today-label">Action du jour</span>
+          <span className="action-today-text">{action}</span>
+        </div>
+      )}
     </section>
   );
 }

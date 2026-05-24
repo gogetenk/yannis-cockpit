@@ -27,7 +27,7 @@ export function BiologyCard({ bio }: Props) {
   return (
     <Link href="/detail/biology" className="biology biology--link" aria-labelledby="biology-label">
       <div className="biology-top">
-        <span className="label label--ink" id="biology-label">Risque cardiovasculaire</span>
+        <span className="label label--ink" id="biology-label">Risque cardiovasculaire <span className="card-chevron" aria-hidden>›</span></span>
         {bpInfo && <span className="biology-meta">{bpInfo}</span>}
       </div>
 

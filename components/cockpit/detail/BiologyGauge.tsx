@@ -30,8 +30,8 @@ export function BiologyGauge({ m }: Props) {
     <svg className="bio-gauge" viewBox="0 0 100 8" preserveAspectRatio="none" aria-hidden>
       <rect x="0" y="3" width="100" height="2" rx="1" className="bio-gauge-track" />
       <rect x={lowPct} y="2.5" width={highPct - lowPct} height="3" rx="1.5" className="bio-gauge-normal" />
-      {basePct !== null && <circle cx={basePct} cy="4" r="1.4" className="bio-gauge-baseline" />}
-      <circle cx={valPct} cy="4" r="2.2" className={"bio-gauge-value" + (m.flag ? " off" : "")} />
+      {basePct !== null && <circle cx={basePct} cy="4" r="2" className="bio-gauge-baseline" />}
+      <circle cx={valPct} cy="4" r="2.6" className={"bio-gauge-value" + (m.flag ? " off" : "")} />
     </svg>
   );
 }

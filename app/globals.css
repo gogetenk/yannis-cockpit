@@ -494,6 +494,26 @@
       white-space: nowrap;
     }
     .signal--watch .signal-status { color: var(--ambre-brule); }
+    .action-today {
+      margin-top: 10px;
+      padding: 10px 12px;
+      background: var(--warm-cream);
+      border-radius: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .action-today-label {
+      font-size: 10px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--sage-ash);
+    }
+    .action-today-text {
+      font-size: 13px;
+      color: var(--sage-ink);
+      font-weight: 500;
+    }
 
     /* Compact mobile: drop sparkline and status word, keep dot + body + value. */
     @media (max-width: 480px) {
@@ -1392,6 +1412,12 @@ header.detail-header .detail-back:focus-visible {
   text-decoration: none;
   cursor: pointer;
 }
+.card-chevron {
+  color: var(--sage-ash);
+  font-weight: 400;
+  margin-left: 4px;
+  font-size: 14px;
+}
 .wegovy.wegovy--link:focus-visible {
   outline: 2px solid var(--deep-sage);
   outline-offset: 2px;
@@ -1572,6 +1598,31 @@ header.detail-header .detail-back:focus-visible {
   text-align: center;
   padding: 24px;
 }
+.bio-marker-group {
+  list-style: none;
+  padding: 0;
+}
+.bio-marker-category {
+  display: block;
+  font-size: 10px;
+  color: var(--sage-ash);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  margin-top: 6px;
+  margin-bottom: -2px;
+}
+.bio-normal-toggle {
+  background: transparent;
+  border: 1px solid var(--sage-mist);
+  border-radius: 10px;
+  padding: 10px 14px;
+  color: var(--sage-ash);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+.bio-normal-toggle:hover { border-color: var(--deep-sage); color: var(--sage-ink); }
 .bio-section {
   background: var(--warm-cream-rest);
   border-radius: var(--rounded-banner);
@@ -1626,7 +1677,7 @@ header.detail-header .detail-back:focus-visible {
 .bio-gauge-normal { fill: var(--deep-sage); opacity: 0.18; }
 .bio-gauge-value { fill: var(--deep-sage); stroke: var(--warm-cream-rest); stroke-width: 0.6; }
 .bio-gauge-value.off { fill: var(--ambre-brule); }
-.bio-gauge-baseline { fill: none; stroke: var(--sage-ash); stroke-width: 0.8; }
+.bio-gauge-baseline { fill: var(--warm-cream); stroke: var(--sage-ash); stroke-width: 1; }
 .bio-marker-label {
   font-size: 13px;
   font-weight: 500;

@@ -184,6 +184,7 @@ export interface CockpitSnapshot {
   hero: WeightHero;
   wegovy: WegovyTitration;
   signals: Signal[];
+  action_today?: string | null;
   bio_age: BioAge;
   biology?: BiologySummary;
   pillars: PillarTile[];

@@ -70,8 +70,10 @@ DEXA = {
         "total_hip_avg": 0.15,
         "radius_total_avg": 0.15,
     },
-    "years_per_sd": 8.0,                # Kanis 2008 reference for males.
-    "ref_age": 30,                      # peak BMD age (young adult mean).
+    "years_per_sd": 8.0,                # Heuristic, NOT from Kanis 2008 (not
+                                        # validated in young males). Treat as
+                                        # rough age-equivalence, not clinical.
+    "ref_age": 30,                      # Peak BMD age (young adult mean).
 }
 
 # DEXA total body composition (TBC, 2026-04-21). Gold standard for fat/lean.
@@ -347,7 +349,9 @@ def build_signals(yazio: list[dict], measurements: list[dict], activity: list[di
     # --- Déficit énergétique observable (28d) ---
     # Pivot from naive TDEE (biased by sparse intake logging) to a more honest
     # signal: the deficit implied purely by weight change. Independent of how
-    # many days the user logged. Uses Wegovy-tuned 6500 kcal/kg coefficient.
+    # many days the user logged. Uses 6500 kcal/kg coefficient (within the
+    # ~5400-6000 range for body weight loss per Hall 2011 Lancet dynamic model;
+    # 7700 is for pure adipose only).
     win_start = today - timedelta(days=28)
     wt_start = next(
         (m for m in measurements if m["type_code"] == 1 and date.fromisoformat(m["ts"][:10]) <= win_start),
@@ -428,6 +432,26 @@ def build_signals(yazio: list[dict], measurements: list[dict], activity: list[di
         })
 
     return out
+
+
+def build_action_today(signals: list[dict]) -> str | None:
+    """Pick the single most actionable signal and turn it into a 1-line action.
+    Returns None if everything is conforme."""
+    # Prefer watch>watch but pick a specific intervention.
+    by_id = {s["id"]: s for s in signals}
+    sleep = by_id.get("sleep")
+    if sleep and sleep["status"] == "watch":
+        return "Couche-toi 1 h plus tôt ce soir"
+    protein = by_id.get("protein")
+    if protein and protein["status"] == "watch":
+        return "Ajoute ~30 g de protéines au dîner (skyr, œufs, whey)"
+    activity = by_id.get("activity")
+    if activity and activity["status"] == "watch":
+        return "Marche 30 min supplémentaires aujourd'hui"
+    deficit = by_id.get("deficit")
+    if deficit and deficit["status"] == "watch":
+        return "Repas plus copieux : déficit calorique trop rapide"
+    return None
 
 
 def _line_spark(values: list[float], color: str, end_dot: bool = False) -> dict:
@@ -524,13 +548,17 @@ def avg_bp_28d(measurements: list[dict], today: date) -> tuple[float | None, flo
 def prevent_30y_total_cvd(markers: dict, sbp: float | None, dbp: float | None,
                           age_yr: float = 35, bmi: float = 28.8,
                           on_bp_treatment: bool = False, on_statin: bool = False) -> float:
-    """Approximation PREVENT 2023 (Khan et al. Circulation 2024;149:430-449)
-    for 30-year total CVD risk (ASCVD + heart failure), male.
+    """Heuristic 30-year total CVD risk, MALE.
 
-    Built from the relative risks published in Tables 1-3 of the main paper
-    (exact coefficients are in the paywalled supplement). Multiplicative
-    model anchored on a reference 35M optimal profile (base 7.5 %).
-    Validated to within ±5 pp on the published example patients.
+    NOT the real PREVENT 2023 equation. The actual PREVENT coefficients
+    (Khan et al. Circulation 2024;149:430-449) are public in the
+    eAppendix and should ideally replace this. This function is a
+    transparent multiplicative heuristic anchored on a reference 35M
+    optimal profile, useful for direction but NOT for clinical decisions.
+
+    To upgrade: download the Khan 2024 eAppendix Tables S6 (30y total
+    CVD, male) and replace coefficient block with the published Cox
+    survival function.
     """
     def get(code: str) -> float | None:
         r = markers.get(code)
@@ -629,10 +657,11 @@ def lifetime_cv_risk_full(markers: dict, age_yr: float, bmi: float | None = None
         elif chol >= 180: not_optimal.append(f"cholestérol {int(chol)} mg/dL")
     # SBP categories (AHA 2017): <120 optimal; 120-129 elevated; 130-139 stage 1;
     # 140-159 stage 1 → elevated; ≥160 major. DBP <80 optimal; 80-89 elevated; ≥100 major.
+    # ACC/AHA 2002 thresholds (matching Berry 2012 model calibration):
+    # SBP <120 optimal; 120-139 sub-optimal; 140-159 elevated; ≥160 major.
     if sbp is not None:
         if sbp >= 160: major.append(f"TA {int(sbp)} mmHg")
         elif sbp >= 140: elevated.append(f"TA {int(sbp)} mmHg")
-        elif sbp >= 130: elevated.append(f"TA {int(sbp)} mmHg")
         elif sbp >= 120: not_optimal.append(f"TA {int(sbp)} mmHg")
     if dbp is not None:
         if dbp >= 100: major.append(f"TA diastolique {int(dbp)}")
@@ -641,15 +670,16 @@ def lifetime_cv_risk_full(markers: dict, age_yr: float, bmi: float | None = None
     if diabetes: major.append("diabète")
     if not non_smoker: major.append("tabac")
 
+    # Berry NEJM 2012 Table 2, men, lifetime risk to age 80 from index age 45.
     if len(major) >= 2:
         return 69, "≥2 facteurs majeurs", " + ".join(major[:2])
     if len(major) >= 1:
-        return 50, "facteur majeur", major[0]
+        return 46, "facteur majeur", major[0]
     if elevated:
-        return 39, "facteur élevé", elevated[0]
+        return 36, "facteur élevé", elevated[0]
     if not_optimal:
-        return 36, "facteur sous-optimal", not_optimal[0]
-    return 5, "tous optimaux", None
+        return 6, "facteur sous-optimal", not_optimal[0]
+    return 1, "tous optimaux", None
 
 
 def build_bio_age(measurements: list[dict], activity: list[dict] | None = None, labs: tuple | None = None) -> dict:
@@ -677,20 +707,20 @@ def build_bio_age(measurements: list[dict], activity: list[dict] | None = None, 
             cardio_age = chrono
     else:
         cardio_age = chrono
-    # SBP penalty on cardio age: Framingham vascular age tables (D'Agostino 2008):
-    # each +10 mmHg SBP over 120 ≈ +5 years vascular age.
+    # SBP penalty on cardio age: heuristic ~+3 years per +10 mmHg over 120
+    # (empirical, derived from D'Agostino 2008 general CVD score; the exact
+    # vascular-age conversion is not in the paper).
     avg_sbp_for_cardio = None
     if measurements:
         s_list = [float(m["value"]) for m in measurements if m["type_code"] == 10]
         if s_list:
             avg_sbp_for_cardio = sum(s_list[-28:]) / len(s_list[-28:])
     if avg_sbp_for_cardio and avg_sbp_for_cardio > 120:
-        cardio_age = min(60, cardio_age + round((avg_sbp_for_cardio - 120) / 10 * 5))
+        cardio_age = min(60, cardio_age + round((avg_sbp_for_cardio - 120) / 10 * 3))
 
-    # Composition age: anchored on DEXA-calibrated fat %. Withings BIA fat is
-    # corrected with the +3.87 pp offset derived from the 2026-04-21 DEXA scan.
-    # Reference fat % at age 30 for males ≈ 18% (Gallagher 2000); each +2 pp
-    # ≈ +1 year of metabolic aging.
+    # Composition age: HEURISTIC. Anchored on DEXA-calibrated fat %. Reference
+    # 18 % at age 30 for males is loosely based on Gallagher 2000 healthy band;
+    # the linear "+2 pp = +1 yr" is NOT published, just a rough scaling.
     fat_ratio = next((m for m in measurements if m["type_code"] == 6 and (m.get("position") in (None, 0, 7))), None)
     fat_pct_corrected = withings_fat_pct_corrected(float(fat_ratio["value"])) if fat_ratio else None
     composition_age = chrono + int(round((fat_pct_corrected - 18) / 2)) if fat_pct_corrected else chrono
@@ -1167,13 +1197,13 @@ def build_detail_wegovy(measurements: list[dict], today: date) -> dict:
             "y_max": 87,
             "points": pts,
             "ideal": ideal,
-            "target": {"value": 75, "label": "asymptote 75 kg"},
+            "target": {"value": 75, "label": "objectif 75 kg"},
             "tolerance": 0.8,
         },
         "table": schedule_rows,
         "method": [
             {"heading": "Sémaglutide 2.4 mg", "body": "Wegovy = sémaglutide injectable hebdomadaire (Novo Nordisk). Agoniste GLP-1, supprime l'appétit central et ralentit la vidange gastrique. Titration 5 paliers sur 16 semaines pour limiter les effets digestifs."},
-            {"heading": "Modèle de référence STEP-1", "body": "Trajectoire idéale = fit Gompertz sur la cohorte sémaglutide 2.4 mg du trial STEP-1 (Wilding et al., NEJM 2021). Asymptote 75 kg, time-constant 22 semaines, exposant 1,4. Le coefficient kcal/kg utilisé pour estimer le déficit énergétique est 6 500 (Hall 2008/2011), pas le 7 700 générique."},
+            {"heading": "Modèle de référence STEP-1", "body": "Trajectoire idéale = fit stretched-exponential (forme Weibull, k=1,4) sur la cohorte sémaglutide 2,4 mg du trial STEP-1 (Wilding et al., NEJM 2021). Asymptote 74 kg, time-constant 20 semaines. Le coefficient ~6 500 kcal/kg utilisé pour estimer le déficit énergétique est dans la fourchette 5 400-6 000 publiée par Hall 2011 Lancet (modèle dynamique perte poids global, pas pure adipeuse à 7 700)."},
             {"heading": "Effets indésirables typiques", "body": "Nausées (44 %), diarrhée (32 %), constipation (24 %), vomissements (24 %). Pic au changement de dose, baisse en 2 à 3 semaines. Si persistant: titration ralentie d'1 palier."},
         ],
         "cross_link": {"label": "Voir signal Réponse Wegovy", "href": "/#wegovy_response"},
@@ -1485,7 +1515,8 @@ def build_detail_biology(panels: list[dict], results: list[dict], today: date, c
         "subs": [],
         "method": [
             {"heading": "PhenoAge (Levine 2018)", "body": "Levine ML et al., Aging (Albany NY) 2018;10(4):573-91. Validée sur NHANES III (n=9 926) + UK Biobank, prédit mortalité 10 ans avec C-statistic 0,84. Combine 9 marqueurs : albumine, créatinine, glucose, hsCRP, lymphocytes %, MCV, RDW, ALP, leucocytes + âge chronologique. NE prend PAS en compte cholestérol/LDL (qui mesurent risque CV futur, pas vieillissement actuel)."},
-            {"heading": "Risque CV à vie (Lloyd-Jones 2006 / Berry 2012)", "body": "Lifetime Risk ACC/AHA, validé sur cohortes CARDIA + Framingham + ARIC + MESA. Stratification 5 catégories selon facteurs de risque actuels (cholestérol total, TA, diabète, tabac). Recommandé par ACC/AHA pour les <40 ans (où Pooled Cohort Equations 10-ans n'est pas validée). Levier majeur : chaque −1 mmol/L LDL = −22 % d'événements CV (CTT Collaboration Lancet 2010)."},
+            {"heading": "Risque CV à vie (Berry NEJM 2012)", "body": "Lifetime Risk validé sur cohortes CARDIA + Framingham + ARIC + MESA, modèle Lloyd-Jones 2006. 5 catégories (tous optimaux 1,4 % · sous-optimal 5,6 % · élevé 35,6 % · majeur 45,5 % · 2+ majeurs 68,9 %, depuis index age 45). Seuils TA = ACC/AHA 2002 (cadrage de l'étude). Levier majeur : chaque −1 mmol/L LDL = −22 % d'événements CV (CTT Collaboration Lancet 2010)."},
+            {"heading": "Score CV 30 ans (heuristique)", "body": "Approximation multiplicative ad-hoc, PAS l'équation officielle PREVENT 2023. Anchor : 7,5 % pour profil optimal 35M, multiplicateurs dérivés des relative risks publiés. À remplacer par les coefficients Cox exacts du eAppendix Khan Circulation 2024;149:430-449 pour usage clinique."},
             {"heading": "Cycle de renouvellement", "body": "Recommandation bilan complet tous les 6 mois en phase Wegovy active. Cycle de référence : 180 jours."},
         ],
         "sections": sections,
@@ -1537,11 +1568,13 @@ def main() -> None:
     if bio_detail:
         pillar_detail["biology"] = bio_detail
 
+    sigs = build_signals(yazio, measurements, activity, hc_records, today)
     payload: dict[str, Any] = {
         "today": today.isoformat(),
         "hero": build_hero(measurements, today),
         "wegovy": build_wegovy(today),
-        "signals": build_signals(yazio, measurements, activity, hc_records, today),
+        "signals": sigs,
+        "action_today": build_action_today(sigs),
         "bio_age": build_bio_age(measurements, activity, labs),
         "biology": build_biology(panels, results, today, measurements),
         "pillars": build_pillars(yazio, measurements, activity, hc_records, today),
