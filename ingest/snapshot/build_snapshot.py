@@ -909,11 +909,12 @@ def build_bio_age(measurements: list[dict], activity: list[dict] | None = None, 
         cardio_age = min(60, cardio_age + round((avg_sbp_for_cardio - 120) / 10 * 3))
 
     # Composition age: HEURISTIC. Anchored on DEXA-calibrated fat %. Reference
-    # 18 % at age 30 for males is loosely based on Gallagher 2000 healthy band;
-    # the linear "+2 pp = +1 yr" is NOT published, just a rough scaling.
+    # 22 % = midpoint of Gallagher 2000 (Am J Clin Nutr 72:694) healthy band
+    # 20-25 % for white males 30-39 yr. The linear "+2 pp = +1 yr" is NOT
+    # published, just a rough scaling we keep for direction.
     fat_ratio = next((m for m in measurements if m["type_code"] == 6 and (m.get("position") in (None, 0, 7))), None)
     fat_pct_corrected = withings_fat_pct_corrected(float(fat_ratio["value"])) if fat_ratio else None
-    composition_age = chrono + int(round((fat_pct_corrected - 18) / 2)) if fat_pct_corrected else chrono
+    composition_age = chrono + int(round((fat_pct_corrected - 22) / 2)) if fat_pct_corrected else chrono
 
     # Skeleton: weighted bone age from DEXA T-scores (HBG MC scan 2026-04-21).
     # bone_age = ref_age + (-T_weighted) * years_per_SD
