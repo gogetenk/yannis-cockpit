@@ -2,9 +2,9 @@ import type { BiologyMarker } from "@/lib/types";
 
 interface Props { m: BiologyMarker }
 
-/** Mini-jauge horizontale: bande verte = range normal, dot pleine = valeur
- *  actuelle, dot creuse = baseline si dispo. Échelle visuelle: 0 ou
- *  ref_low*0.7 → max(ref_high*1.3, value*1.1, baseline*1.1). */
+/** Mini-jauge horizontale : track gris, bande verte = range normal, dot pleine
+ *  = valeur actuelle, dot creuse = baseline. Rendue en HTML/CSS pour garder
+ *  les dots parfaitement ronds (SVG preserveAspectRatio=none les écrase). */
 export function BiologyGauge({ m }: Props) {
   if (m.value_num === null) return null;
   const hasLow = m.ref_low !== null;
@@ -19,19 +19,27 @@ export function BiologyGauge({ m }: Props) {
   const visMax = Math.max(...candidates) * 1.1;
   const visMin = hasLow ? Math.min(refLow * 0.7, v * 0.9) : 0;
   const span = visMax - visMin || 1;
-
   const xPct = (x: number) => Math.max(0, Math.min(100, ((x - visMin) / span) * 100));
+
   const lowPct = hasLow ? xPct(refLow) : 0;
   const highPct = xPct(refHigh);
   const valPct = xPct(v);
   const basePct = b !== null ? xPct(b) : null;
 
   return (
-    <svg className="bio-gauge" viewBox="0 0 100 8" preserveAspectRatio="none" aria-hidden>
-      <rect x="0" y="3" width="100" height="2" rx="1" className="bio-gauge-track" />
-      <rect x={lowPct} y="2.5" width={highPct - lowPct} height="3" rx="1.5" className="bio-gauge-normal" />
-      {basePct !== null && <circle cx={basePct} cy="4" r="2" className="bio-gauge-baseline" />}
-      <circle cx={valPct} cy="4" r="2.6" className={"bio-gauge-value" + (m.flag ? " off" : "")} />
-    </svg>
+    <div className="bio-gauge" aria-hidden>
+      <div className="bio-gauge-track" />
+      <div
+        className="bio-gauge-normal"
+        style={{ left: `${lowPct}%`, width: `${Math.max(0, highPct - lowPct)}%` }}
+      />
+      {basePct !== null && (
+        <div className="bio-gauge-baseline" style={{ left: `${basePct}%` }} />
+      )}
+      <div
+        className={"bio-gauge-value" + (m.flag ? " off" : "")}
+        style={{ left: `${valPct}%` }}
+      />
+    </div>
   );
 }

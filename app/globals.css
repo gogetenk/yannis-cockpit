@@ -1702,16 +1702,46 @@ header.detail-header .detail-back:focus-visible {
 .bio-gauge {
   grid-column: 1 / -1;
   grid-row: 3;
+  position: relative;
   width: 100%;
-  height: 8px;
-  margin-top: 2px;
-  overflow: visible;
+  height: 12px;
+  margin-top: 6px;
 }
-.bio-gauge-track { fill: var(--sage-mist); opacity: 0.5; }
-.bio-gauge-normal { fill: var(--deep-sage); opacity: 0.18; }
-.bio-gauge-value { fill: var(--deep-sage); stroke: var(--warm-cream-rest); stroke-width: 0.6; }
-.bio-gauge-value.off { fill: var(--ambre-brule); }
-.bio-gauge-baseline { fill: var(--warm-cream); stroke: var(--sage-ash); stroke-width: 1; }
+.bio-gauge-track {
+  position: absolute;
+  inset: 5px 0 5px 0;
+  background: var(--sage-mist);
+  opacity: 0.5;
+  border-radius: 2px;
+}
+.bio-gauge-normal {
+  position: absolute;
+  top: 4px;
+  height: 4px;
+  background: var(--deep-sage);
+  opacity: 0.22;
+  border-radius: 2px;
+}
+.bio-gauge-value,
+.bio-gauge-baseline {
+  position: absolute;
+  top: 50%;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+}
+.bio-gauge-value {
+  background: var(--deep-sage);
+  border: 1.5px solid var(--warm-cream-rest);
+}
+.bio-gauge-value.off { background: var(--ambre-brule); }
+.bio-gauge-baseline {
+  background: var(--warm-cream);
+  border: 1.5px solid var(--sage-ash);
+  width: 8px;
+  height: 8px;
+}
 .bio-marker-label {
   font-size: 13px;
   font-weight: 500;
