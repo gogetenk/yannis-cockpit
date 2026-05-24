@@ -2,9 +2,8 @@ name: Ingest Yazio
 
 on:
   schedule:
-    # Daily at 04:00 UTC = 08:00 Dubai local. After most users finish logging
-    # the previous day. Cron is best-effort on free GH Actions, expect drift.
-    - cron: "0 4 * * *"
+    # 8h / 10h / 18h Europe/Paris (CEST = UTC+2)
+    - cron: "0 6,8,16 * * *"
   workflow_dispatch:
     inputs:
       days:

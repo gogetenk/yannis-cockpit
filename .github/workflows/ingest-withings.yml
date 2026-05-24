@@ -2,10 +2,8 @@ name: Ingest Withings
 
 on:
   schedule:
-    # Every 3 hours. Withings access_token TTL = 3h so we refresh on every
-    # run too. Body Scan + BPM + Sleep Analyzer push measurements throughout
-    # the day; we never want to be more than 3h behind.
-    - cron: "15 */3 * * *"
+    # 8h / 10h / 18h Europe/Paris (CEST = UTC+2)
+    - cron: "0 6,8,16 * * *"
   workflow_dispatch:
     inputs:
       backfill_days:

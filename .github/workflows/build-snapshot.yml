@@ -7,7 +7,8 @@ name: Build cockpit snapshot
 
 on:
   schedule:
-    - cron: "37 * * * *"
+    # 8h05 / 10h05 / 18h05 Paris (fallback; workflow_run fires sooner after ingests)
+    - cron: "5 6,8,16 * * *"
   workflow_run:
     workflows: ["Ingest Yazio", "Ingest Withings"]
     types: [completed]
