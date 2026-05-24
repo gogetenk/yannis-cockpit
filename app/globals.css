@@ -1469,6 +1469,42 @@ header.detail-header .detail-back:focus-visible {
 
 /* Biology detail page: marker list grouped by system. */
 .bio-sections { display: flex; flex-direction: column; gap: 22px; }
+.bio-search {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: var(--warm-cream);
+  padding: 8px 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.bio-search input {
+  flex: 1;
+  font: inherit;
+  font-size: 14px;
+  color: var(--sage-ink);
+  background: var(--warm-cream-rest);
+  border: 1px solid var(--sage-mist);
+  border-radius: 10px;
+  padding: 10px 14px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+.bio-search input::placeholder { color: var(--sage-ash); }
+.bio-search input:focus { border-color: var(--deep-sage); }
+.bio-search-count {
+  font-size: 11px;
+  color: var(--sage-ash);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.bio-search-empty {
+  font-size: 13px;
+  color: var(--sage-ash);
+  text-align: center;
+  padding: 24px;
+}
 .bio-section {
   background: var(--warm-cream-rest);
   border-radius: var(--rounded-banner);

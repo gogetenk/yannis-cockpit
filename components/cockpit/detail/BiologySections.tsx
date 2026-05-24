@@ -1,13 +1,42 @@
+"use client";
+import { useMemo, useState } from "react";
 import type { BiologySection } from "@/lib/types";
 
 interface Props { sections: BiologySection[] }
 
 export function BiologySections({ sections }: Props) {
+  const [q, setQ] = useState("");
+  const needle = q.trim().toLowerCase();
+
+  const filtered = useMemo(() => {
+    if (!needle) return sections;
+    return sections
+      .map(sec => ({
+        ...sec,
+        markers: sec.markers.filter(m =>
+          m.label.toLowerCase().includes(needle) ||
+          m.code.toLowerCase().includes(needle)
+        ),
+      }))
+      .filter(sec => sec.markers.length > 0);
+  }, [sections, needle]);
+
   if (!sections?.length) return null;
+  const totalShown = filtered.reduce((n, s) => n + s.markers.length, 0);
+
   return (
     <section className="bio-sections" aria-labelledby="bio-sections-heading">
-      <h2 id="bio-sections-heading" className="section-label">Tous les marqueurs</h2>
-      {sections.map(sec => {
+      <div className="bio-search">
+        <input
+          type="search"
+          placeholder="Rechercher un marqueur (ex: LDL, ferritine, ALT)"
+          value={q}
+          onChange={e => setQ(e.target.value)}
+          aria-label="Filtrer les marqueurs"
+        />
+        {needle && <span className="bio-search-count">{totalShown} résultat{totalShown > 1 ? "s" : ""}</span>}
+      </div>
+      {filtered.map(sec => {
         const abnormal = sec.markers.filter(m => m.flag).length;
         return (
           <div key={sec.key} className="bio-section">
@@ -45,6 +74,9 @@ export function BiologySections({ sections }: Props) {
           </div>
         );
       })}
+      {filtered.length === 0 && (
+        <p className="bio-search-empty">Aucun marqueur ne contient « {q} ».</p>
+      )}
     </section>
   );
 }
