@@ -381,14 +381,14 @@ def build_signals(yazio: list[dict], measurements: list[dict], activity: list[di
     if lbm_row and proteins:
         lbm = float(lbm_row["value"])
         avg_protein = sum(proteins) / len(proteins)
-        g_per_kg = avg_protein / lbm
-        watch = g_per_kg < 2.0
+        target_g = round(lbm * 2.0)  # 2.0 g/kg LBM target
+        watch = avg_protein < target_g * 0.85
         out.append({
             "id": "protein",
             "title": "Protéines",
-            "sub": "cible 2,0",
-            "value": fmt_num(g_per_kg, 1),
-            "unit": "g/kg",
+            "sub": f"cible {target_g} g/j",
+            "value": str(int(round(avg_protein))),
+            "unit": "g/j",
             "status": "watch" if watch else "ok",
             "status_label": "à surveiller" if watch else "conforme",
             "spark": _bar_spark(proteins[-13:], "ambre" if watch else "sage"),
