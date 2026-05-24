@@ -73,6 +73,36 @@ DEXA = {
     "years_per_sd": 8.0,                # Kanis 2008 reference for males.
     "ref_age": 30,                      # peak BMD age (young adult mean).
 }
+
+# DEXA total body composition (TBC, 2026-04-21). Gold standard for fat/lean.
+# Used (a) directly when displaying body comp, (b) to derive a calibration
+# delta vs Withings BIA same-day so we can correct future BIA readings.
+DEXA_TBC = {
+    "date": "2026-04-21",
+    "weight_kg": 86.3,
+    "fat_pct": 24.3,                    # total body fat %
+    "fat_mass_kg": 20.07,
+    "lean_mass_kg": 59.94,              # lean only (excl. BMC)
+    "lean_plus_bmc_kg": 62.65,
+    "asm_kg": 28.2,                     # appendicular skeletal muscle → SMI
+    "vat_mass_g": 608,
+    "vat_sat_ratio": 1.15,
+    "trunk_fat_pct": 27.2,
+    "android_fat_pct": 33.8,
+    "gynoid_fat_pct": 31.3,
+}
+
+# Withings BIA same-day reading (2026-04-21): fat 20.43%, muscle 64.17 kg.
+# DEXA − Withings = +3.87 pp on body fat (Withings underestimates in lean
+# subjects, classical BIA artifact). Additive correction is more robust than
+# multiplicative at low body fat. Applied to all Withings fat % readings.
+BIA_FAT_OFFSET_PP = round(DEXA_TBC["fat_pct"] - 20.43, 2)  # = +3.87
+BIA_REFERENCE_DATE = DEXA_TBC["date"]
+
+
+def withings_fat_pct_corrected(raw_pct: float) -> float:
+    """Apply DEXA-anchored additive offset to Withings BIA fat %."""
+    return raw_pct + BIA_FAT_OFFSET_PP
 MONTHS_FR = ["jan", "fév", "mar", "avr", "mai", "juin", "juil", "août", "sept", "oct", "nov", "déc"]
 
 
@@ -401,8 +431,13 @@ def build_bio_age(measurements: list[dict], activity: list[dict] | None = None) 
     else:
         cardio_age = chrono
 
+    # Composition age: anchored on DEXA-calibrated fat %. Withings BIA fat is
+    # corrected with the +3.87 pp offset derived from the 2026-04-21 DEXA scan.
+    # Reference fat % at age 30 for males ≈ 18% (Gallagher 2000); each +2 pp
+    # ≈ +1 year of metabolic aging.
     fat_ratio = next((m for m in measurements if m["type_code"] == 6 and (m.get("position") in (None, 0, 7))), None)
-    composition_age = chrono + int(round((float(fat_ratio["value"]) - 16) / 2)) if fat_ratio else chrono
+    fat_pct_corrected = withings_fat_pct_corrected(float(fat_ratio["value"])) if fat_ratio else None
+    composition_age = chrono + int(round((fat_pct_corrected - 18) / 2)) if fat_pct_corrected else chrono
 
     # Skeleton: weighted bone age from DEXA T-scores (HBG MC scan 2026-04-21).
     # bone_age = ref_age + (-T_weighted) * years_per_SD
@@ -500,7 +535,7 @@ def build_pillars(yazio: list[dict], measurements: list[dict], activity: list[di
         pts = []
         for i, m in enumerate(sampled):
             x = round(8 + (i / max(1, len(sampled) - 1)) * 184, 1)
-            v = float(m["value"])
+            v = withings_fat_pct_corrected(float(m["value"]))
             # map 14-30% MG → y 12..72
             y = round(12 + ((30 - v) / 16) * 60, 1)
             y = max(8, min(72, y))
@@ -509,7 +544,7 @@ def build_pillars(yazio: list[dict], measurements: list[dict], activity: list[di
             "key": "composition",
             "label": "Composition",
             "meta": fmt_date_fr(latest_date),
-            "figure": fmt_num(float(latest_bf["value"]), 1),
+            "figure": fmt_num(withings_fat_pct_corrected(float(latest_bf["value"])), 1),
             "unit": "% MG",
             "chart": {
                 "kind": "area",
@@ -706,52 +741,46 @@ def build_pillar_detail_composition(measurements: list[dict], today: date) -> di
     if not fat:
         return None
     latest = fat[-1]
-    latest_v = float(latest["value"])
+    latest_v = withings_fat_pct_corrected(float(latest["value"]))
     latest_d = date.fromisoformat(latest["ts"][:10])
-    # Trajectory: weekly average over the last 24 months. Body Scan only came
-    # online in Apr 2026, but older Body+ scales also report fat_ratio.
     weekly = _sample_weekly(fat, today, 104)
     pts = [
-        {
-            "date": fmt_date_fr(d),
-            "value": round(v, 1),
-        }
+        {"date": fmt_date_fr(d), "value": round(withings_fat_pct_corrected(v), 1)}
         for d, v in weekly
     ]
-    # vs 6 months ago
     six_m_ago = next((r for r in fat if (today - date.fromisoformat(r["ts"][:10])).days >= 180), None)
     delta = None
     if six_m_ago:
-        delta = round(latest_v - float(six_m_ago["value"]), 1)
+        delta = round(latest_v - withings_fat_pct_corrected(float(six_m_ago["value"])), 1)
     rows: list[dict] = []
     for m in fat[-8:][::-1]:
         d = date.fromisoformat(m["ts"][:10])
-        rows.append({"date": fmt_date_fr(d), "value": round(float(m["value"]), 1), "unit": "% MG"})
+        rows.append({"date": fmt_date_fr(d), "value": round(withings_fat_pct_corrected(float(m["value"])), 1), "unit": "% MG"})
     return {
         "key": "composition",
         "title": "Composition corporelle",
-        "meta": f"Withings · dernière mesure {fmt_date_fr(latest_d)}",
+        "meta": f"Withings (calibré DEXA {BIA_REFERENCE_DATE}) · dernière mesure {fmt_date_fr(latest_d)}",
         "hero": {
             "figure": fmt_num(latest_v, 1),
             "unit": "% MG",
             "delta_label": (f"{'+' if delta >= 0 else '−'}{abs(delta)} pts vs 6 mois" if delta is not None else None),
-            "status_label": "Conforme" if latest_v <= 18 else "Dérive mineure" if latest_v <= 22 else "Dérive notable",
-            "status_off": latest_v > 18,
+            "status_label": "Conforme" if latest_v <= 20 else "Dérive mineure" if latest_v <= 24 else "Dérive notable",
+            "status_off": latest_v > 20,
         },
         "trajectory": {
             "x_label": "12 mois",
             "y_unit": "% MG",
             "y_min": 14,
-            "y_max": 30,
+            "y_max": 32,
             "points": pts,
-            "target": {"value": 16, "label": "cible 16 %"},
+            "target": {"value": 18, "label": "cible 18 %"},
         },
         "table": rows,
         "subs": _segment_subs(measurements, 175, "kg", "muscle") + _segment_subs(measurements, 174, "kg", "fat"),
         "method": [
-            {"heading": "Source", "body": "Withings Body Scan (BIA segmentale 8 électrodes, 50 kHz). Mesure auto au lever, à jeun. MG% via algorithme propriétaire calibré hydratation."},
-            {"heading": "Fenêtre", "body": f"Échantillonnage 1 mesure / mois sur 12 mois. Dernière mesure {fmt_date_fr(latest_d)}."},
-            {"heading": "Cible", "body": "16 % long terme (catégorie 'athletic' ACSM cohorte 30-39 ans). Bande conforme jusqu'à 18 %."},
+            {"heading": "Source", "body": f"Withings Body Scan (BIA segmentale 8 électrodes, 50 kHz). Mesures Withings calibrées par offset +{BIA_FAT_OFFSET_PP} pp dérivé du DEXA total body HBG MC du {BIA_REFERENCE_DATE} (BIA Withings sous-estime systématiquement la MG chez les sujets minces, artefact classique)."},
+            {"heading": "DEXA référence", "body": f"DEXA TBC ({BIA_REFERENCE_DATE}) : MG totale {DEXA_TBC['fat_pct']} %, masse maigre {DEXA_TBC['lean_mass_kg']} kg, ASM {DEXA_TBC['asm_kg']} kg (SMI 9,4 — normal), VAT {DEXA_TBC['vat_mass_g']} g, ratio VAT/SAT {DEXA_TBC['vat_sat_ratio']}."},
+            {"heading": "Cible", "body": "18 % long terme (catégorie 'athletic' ACSM cohorte 30-39 ans, post-correction DEXA). Bande conforme jusqu'à 20 %."},
         ],
     }
 
