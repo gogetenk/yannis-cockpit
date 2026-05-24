@@ -702,8 +702,11 @@ def phenoage_levine(markers: dict, chrono_yr: float) -> float | None:
           + 0.00188 * alp
           + 0.0554 * wbc
           + 0.0804 * chrono_yr)
-    M = 1 - math.exp(-1.51714 * math.exp(xb) / 0.0076927)
-    return 141.50 + math.log(-0.00553 * math.log(max(1 - M, 1e-9))) / 0.09165
+    # Levine 2018 (Aging) eq. from supplement: M = 1 - exp(-exp(xb) * (exp(g*t) - 1) / g)
+    # with g = 0.0076927 and t = 120 months. Then PhenoAge = 141.50225 + ln(-0.00553 * ln(1-M)) / 0.090165
+    g = 0.0076927
+    M = 1 - math.exp(-math.exp(xb) * (math.exp(g * 120) - 1) / g)
+    return 141.50225 + math.log(-0.00553 * math.log(max(1 - M, 1e-9))) / 0.090165
 
 
 def avg_bp_28d(measurements: list[dict], today: date) -> tuple[float | None, float | None]:
