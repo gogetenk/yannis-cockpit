@@ -382,7 +382,7 @@ def build_signals(yazio: list[dict], measurements: list[dict], activity: list[di
         out.append({
             "id": "protein",
             "title": "Protéines",
-            "sub": "cible 2,0–2,4",
+            "sub": "cible 2,0",
             "value": fmt_num(g_per_kg, 1),
             "unit": "g/kg",
             "status": "watch" if watch else "ok",
