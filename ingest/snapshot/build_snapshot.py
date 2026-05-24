@@ -441,16 +441,15 @@ def build_signals(yazio: list[dict], measurements: list[dict], activity: list[di
     if len(sleep_pts) >= 3:
         last7 = sleep_pts[-7:]
         avg_min = sum(v for _, v in last7) / len(last7)
-        # Weekly cumulative delta vs 7h30/nuit target.
+        # Weekly cumulative delta vs 7h30/nuit target. Positive = surplus.
         delta_h = (avg_min - 450) * len(last7) / 60
         watch = avg_min < 400  # <6h40 = alerte
-        in_debt = delta_h < 0
-        title = "Dette sommeil" if in_debt else "Sommeil au-dessus"
+        sign = "+" if delta_h >= 0 else "−"
         out.append({
             "id": "sleep",
-            "title": title,
+            "title": "Dette sommeil",
             "sub": "optimum 7 h 30/nuit",
-            "value": f"{abs(int(round(delta_h)))} h",
+            "value": f"{sign}{abs(int(round(delta_h)))} h",
             "unit": "/ semaine",
             "status": "watch" if watch else "ok",
             "status_label": "à surveiller" if watch else "conforme",
