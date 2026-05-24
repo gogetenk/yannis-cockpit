@@ -2,16 +2,20 @@ import type { BioAge } from "@/lib/types";
 
 interface Props { bioAge: BioAge }
 
-// Sub-age bar height encodes age on a 0–70 scale (chrono baseline at 50%).
-// Visual mirrors the mockup: heights between ~41% (cardio 28) and ~53%
-// (composition 36). Each value is bounded at the 110px container.
-function subageHeightPct(age: number) {
-  // Linear map: 0→0%, 70→100% (so chrono 35 lands at 50%, matching the chrono line).
-  return Math.max(8, Math.min(100, (age / 70) * 100));
+// Sub-age bar height encodes age on a zoomed scale around the actual sub-age
+// range so 6–10 yr deltas read as full-height differences instead of vanishing
+// into a 0–70 yr canvas. Chrono is included so its line stays anchored.
+function makeSubageHeight(values: number[], chrono: number) {
+  const all = [...values, chrono];
+  const min = Math.min(...all) - 3;
+  const max = Math.max(...all) + 3;
+  const span = Math.max(1, max - min);
+  return (age: number) => Math.max(8, Math.min(100, ((age - min) / span) * 100));
 }
 
 export function BioAgeTile({ bioAge }: Props) {
   const ages = bioAge.trajectory_12m;
+  const subageHeightPct = makeSubageHeight(bioAge.subages.map(s => s.value), bioAge.chrono);
   // Map trajectory_12m values (years) to SVG viewBox 0–240 × 0–64.
   // Y-scale: 70 → 0 (top), 0 → 64 (bottom). Chrono baseline at y=24 (≈ 35 yrs).
   // Y-scale tuned to a tight window around the trajectory + chrono, so the
@@ -47,19 +51,22 @@ export function BioAgeTile({ bioAge }: Props) {
       </div>
 
       <div className="subages" aria-label="4 sous-âges biologiques">
-        {bioAge.subages.map(sub => (
+        {bioAge.subages.map(sub => {
+          const chronoTop = 100 - subageHeightPct(bioAge.chrono);
+          return (
           <div className="subage" key={sub.key}>
             <div className="subage-bar">
               <span
                 className={"subage-fill" + (sub.off ? " off" : "")}
                 style={{ height: `${subageHeightPct(sub.value)}%` }}
               ></span>
-              <span className="subage-chrono"></span>
+              <span className="subage-chrono" style={{ top: `${chronoTop}%` }}></span>
             </div>
             <span className={"subage-val" + (sub.off ? " off" : "")}>{sub.value}</span>
             <span className="subage-label">{sub.label}</span>
           </div>
-        ))}
+          );
+        })}
       </div>
 
       <figure className="age-trajectory" aria-label={`Évolution âge biologique 12 mois: ${ages[0]?.value} → ${ages[ages.length-1]?.value}`}>

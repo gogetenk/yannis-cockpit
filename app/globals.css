@@ -808,7 +808,7 @@
       position: absolute;
       left: -3px;
       right: -3px;
-      top: 50%;   /* chrono 35 ≈ midpoint of 0-70 scale */
+      top: 50%; /* default; BioAgeTile overrides inline on the zoomed scale */
       height: 1px;
       background: var(--sage-ash);
       opacity: 0.6;

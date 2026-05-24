@@ -15,9 +15,11 @@ export function BiologyGauge({ m }: Props) {
   const refHigh = hasHigh ? (m.ref_high as number) : refLow * 2;
   const v = m.value_num;
   const b = m.baseline_num;
-  const candidates = [v, refHigh, ...(b !== null ? [b] : [])];
-  const visMax = Math.max(...candidates) * 1.1;
-  const visMin = hasLow ? Math.min(refLow * 0.7, v * 0.9) : 0;
+  // Visible range derived solely from the reference window so the dot's
+  // position is comparable across markers (and across snapshots) — the dot
+  // moves with the value, not the chart.
+  const visMax = refHigh * 1.25;
+  const visMin = hasLow ? Math.max(0, refLow * 0.7) : 0;
   const span = visMax - visMin || 1;
   const xPct = (x: number) => Math.max(0, Math.min(100, ((x - visMin) / span) * 100));
 
