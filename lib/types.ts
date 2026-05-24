@@ -93,6 +93,11 @@ export interface BiologySummary {
   lifetime_cv_risk_pct: number;
   lifetime_cv_risk_label: string;
   lifetime_cv_risk_driver: string | null;
+  prevent_30y_pct: number;
+  prevent_30y_band: "low" | "borderline" | "intermediate" | "high";
+  prevent_30y_band_label: string;
+  sbp_avg: number | null;
+  dbp_avg: number | null;
   days_since_last: number;
   days_until_next: number;
   next_recommended_date: string;
