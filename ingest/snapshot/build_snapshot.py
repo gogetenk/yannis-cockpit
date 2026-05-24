@@ -529,12 +529,20 @@ def build_ai_brief(payload: dict, full_context: dict | None = None) -> str | Non
     hero = payload.get("hero", {})
     wegovy = payload.get("wegovy", {})
     signals = payload.get("signals", [])
+    delta = hero.get("delta_kg") or 0
+    if delta < -0.4:
+        delta_interpretation = f"perte plus rapide que la courbe idéale STEP-1 ({abs(delta):.1f} kg en avance)"
+    elif delta > 0.4:
+        delta_interpretation = f"perte plus lente que la courbe idéale STEP-1 ({abs(delta):.1f} kg en retard)"
+    else:
+        delta_interpretation = "pile sur la courbe idéale STEP-1"
     facts = {
         "poids_actuel_kg": hero.get("current_kg"),
         "poids_initial_kg": 86.6,
         "kg_perdus_depuis_J1": round(86.6 - float(hero.get("current_kg") or 86.6), 1),
         "status_hero": hero.get("statusLabel"),
-        "ecart_vs_courbe_ideale_kg": hero.get("delta_kg"),
+        "ecart_vs_courbe_ideale_kg": delta,
+        "interpretation_ecart": delta_interpretation,
         "wegovy_jour": wegovy.get("day_since_start"),
         "wegovy_dose_actuelle_mg": wegovy.get("current_dose_mg"),
         "wegovy_prochaine_titration_mg": wegovy.get("next_dose_mg"),
