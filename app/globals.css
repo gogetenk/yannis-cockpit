@@ -1520,14 +1520,6 @@ header.detail-header .detail-back:focus-visible {
   font-variant-numeric: tabular-nums;
   line-height: 1;
 }
-.biology-cv-value-small {
-  font-family: var(--font-display);
-  font-weight: 400;
-  font-size: 22px;
-  color: var(--sage-ink);
-  font-variant-numeric: tabular-nums;
-  line-height: 1;
-}
 .biology-cv-unit {
   font-size: 13px;
   color: var(--sage-ash);
@@ -1546,7 +1538,6 @@ header.detail-header .detail-back:focus-visible {
   height: 14px;
   margin-top: 6px;
 }
-.cv-gauge--small { height: 12px; margin-top: 4px; }
 .cv-gauge-track {
   position: absolute;
   inset: 5px 0;
@@ -1558,7 +1549,6 @@ header.detail-header .detail-back:focus-visible {
   );
   border-radius: 2px;
 }
-.cv-gauge--small .cv-gauge-track { inset: 4px 0; }
 .cv-gauge-median {
   position: absolute;
   left: 50%;
@@ -1577,10 +1567,6 @@ header.detail-header .detail-back:focus-visible {
   background: var(--sage-ink);
   border: 1.5px solid var(--warm-cream-rest);
   transform: translate(-50%, -50%);
-}
-.cv-gauge--small .cv-gauge-dot {
-  width: 9px;
-  height: 9px;
 }
 .biology-cv-gauge {
   width: 100%;

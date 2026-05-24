@@ -13,9 +13,9 @@ function centeredX(v: number, median: number, max: number): number {
   return Math.min(100, 50 + ((v - median) / (max - median)) * 50);
 }
 
-function Gauge({ pctX, small = false }: { pctX: number; small?: boolean }) {
+function Gauge({ pctX }: { pctX: number }) {
   return (
-    <div className={"cv-gauge" + (small ? " cv-gauge--small" : "")} aria-hidden>
+    <div className="cv-gauge" aria-hidden>
       <div className="cv-gauge-track" />
       <div className="cv-gauge-median" />
       <div className="cv-gauge-dot" style={{ left: `${pctX}%` }} />
@@ -43,20 +43,15 @@ export function BiologyCard({ bio }: Props) {
         <span className="biology-cv-sub">PREVENT · {bio.prevent_30y_band_label}</span>
       </div>
       <Gauge pctX={pvX} />
-      <div className="biology-cv-scale">
-        <span>faible</span>
-        <span className="biology-cv-stop--center">médiane 35 ans · {PREVENT_MEDIAN} %</span>
-        <span>élevé</span>
-      </div>
 
       <div className="biology-cv-row biology-cv-row--secondary">
-        <div className="biology-cv-figure biology-cv-figure--small">
-          <span className="biology-cv-value-small">{bio.lifetime_cv_risk_pct}</span>
+        <div className="biology-cv-figure">
+          <span className="biology-cv-value">{bio.lifetime_cv_risk_pct}</span>
           <span className="biology-cv-unit">% à vie</span>
         </div>
         <span className="biology-cv-sub">Lloyd-Jones · {bio.lifetime_cv_risk_driver ?? bio.lifetime_cv_risk_label}</span>
       </div>
-      <Gauge pctX={ltX} small />
+      <Gauge pctX={ltX} />
     </Link>
   );
 }
