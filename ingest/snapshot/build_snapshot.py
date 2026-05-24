@@ -638,17 +638,32 @@ def _avg_hrv_from_hc(hc_records: list[dict], today: date) -> tuple[float, list[f
 
 
 def _sleep_minutes_per_day(hc_records: list[dict], today: date, days: int) -> list[tuple[date, float]]:
-    """Per-day total sleep minutes from sleep_session records."""
+    """Per-day NIGHT sleep minutes from sleep_session records.
+
+    Health Connect receives the same night from multiple source apps (Withings,
+    Health Sync, Google Fit). Dedup by (start_ts, end_ts) to avoid summing
+    duplicates. Daytime naps (<4 h) are filtered so they don't inflate the
+    night total when bucketed on the same wake day.
+    """
+    seen: set[tuple[str, str]] = set()
     by_day: dict[date, float] = {}
     for r in hc_records:
         if r["record_type"] != "sleep_session" or r.get("value_num") is None:
             continue
-        # Use end_ts as the "wake day" anchor
+        mins = float(r["value_num"])
+        if mins < 240:  # skip naps
+            continue
+        key = (r["start_ts"], r.get("end_ts") or "")
+        if key in seen:
+            continue
+        seen.add(key)
         d_str = (r.get("end_ts") or r["start_ts"])[:10]
         d = date.fromisoformat(d_str)
         if d < today - timedelta(days=days) or d > today:
             continue
-        by_day[d] = by_day.get(d, 0) + float(r["value_num"])
+        # Take MAX rather than sum in case the same night gets logged with
+        # different durations across sources (e.g. one trims wake-up time).
+        by_day[d] = max(by_day.get(d, 0), mins)
     return sorted(by_day.items())
 
 
