@@ -51,6 +51,28 @@ START_KG = 86.6       # Withings reading at J1.
 GOMP_TAU_WEEKS = 20   # cohort time constant; matches STEP-1 mid-curve.
 GOMP_SHAPE = 1.4
 GOAL_KG = 75.0
+
+# DEXA from HBG MC scan dated 2026-04-21 (Yannis age 35.1). T-scores by site.
+# Pondération inspirée ISCD: rachis 40% (trabéculaire = marqueur précoce),
+# col fémoral 30% (prédicteur fracture), hanche totale 15%, radius 15% (cortical).
+# Conversion T-score → âge osseux: 1 SD ≈ 8 années (Kanis 2008 / FRAX ref).
+DEXA = {
+    "date": "2026-04-21",
+    "tscores": {
+        "spine_L1_L4": -1.3,            # ostéopénie légère, tirée par L1 (-2.2)
+        "femoral_neck_avg": -0.65,      # (-0.8 G + -0.5 D) / 2, normal
+        "total_hip_avg": -0.75,         # (-0.8 G + -0.7 D) / 2, normal
+        "radius_total_avg": 0.9,        # (+0.7 G + +1.1 D) / 2, normal fort
+    },
+    "weights": {
+        "spine_L1_L4": 0.40,
+        "femoral_neck_avg": 0.30,
+        "total_hip_avg": 0.15,
+        "radius_total_avg": 0.15,
+    },
+    "years_per_sd": 8.0,                # Kanis 2008 reference for males.
+    "ref_age": 30,                      # peak BMD age (young adult mean).
+}
 MONTHS_FR = ["jan", "fév", "mar", "avr", "mai", "juin", "juil", "août", "sept", "oct", "nov", "déc"]
 
 
@@ -381,18 +403,28 @@ def build_bio_age(measurements: list[dict], activity: list[dict] | None = None) 
 
     fat_ratio = next((m for m in measurements if m["type_code"] == 6 and (m.get("position") in (None, 0, 7))), None)
     composition_age = chrono + int(round((float(fat_ratio["value"]) - 16) / 2)) if fat_ratio else chrono
-    # Skeleton: bone_mass is too noisy as-is without T-score; keep chrono until
-    # we ingest a DEXA report.
-    composite = round((cardio_age + chrono + composition_age + chrono) / 4)
+
+    # Skeleton: weighted bone age from DEXA T-scores (HBG MC scan 2026-04-21).
+    # bone_age = ref_age + (-T_weighted) * years_per_SD
+    # Negative T = lower BMD vs young adult mean = older bone equivalent.
+    weighted_t = sum(DEXA["tscores"][k] * DEXA["weights"][k] for k in DEXA["tscores"])
+    skeleton_age = int(round(DEXA["ref_age"] + (-weighted_t) * DEXA["years_per_sd"]))
+
+    # Blood: no panel ingested yet → mark off, exclude from composite to avoid
+    # biasing toward chrono.
+    blood_age_known = False
+    measured = [cardio_age, composition_age, skeleton_age]
+    composite = round(sum(measured) / len(measured))
+
     return {
         "composite": composite,
         "chrono": chrono,
         "delta_vs_chrono": composite - chrono,
         "subages": [
             {"key": "cardio", "label": "Cardio", "value": cardio_age},
-            {"key": "blood", "label": "Sang", "value": chrono},
+            {"key": "blood", "label": "Sang", "value": chrono, "off": not blood_age_known},
             {"key": "composition", "label": "Composition", "value": composition_age, "off": composition_age > chrono + 1},
-            {"key": "skeleton", "label": "Squelette", "value": chrono},
+            {"key": "skeleton", "label": "Squelette", "value": skeleton_age, "off": skeleton_age > chrono + 5},
         ],
         "trajectory_12m": _composite_history(measurements, chrono),
     }
