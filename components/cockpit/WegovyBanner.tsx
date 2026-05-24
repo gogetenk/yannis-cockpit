@@ -1,14 +1,51 @@
+"use client";
+
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useState } from "react";
 import type { WegovyTitration } from "@/lib/types";
 
 interface Props { wegovy: WegovyTitration }
 
 export function WegovyBanner({ wegovy }: Props) {
+  const router = useRouter();
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
   const n = wegovy.ladder.length;
   const xPos = (i: number) => 20 + (i / (n - 1)) * 260;
-  // Completed track goes from first dot to current step.
   const completedEndX = xPos(wegovy.step_index - 1);
   const fmtDose = (mg: number) => mg.toString().replace(".", ",");
+
+  const daysSince = wegovy.days_since_last_injection ?? 0;
+  const overdue = !!wegovy.is_overdue;
+  const showLogBtn = daysSince >= 6 || overdue;
+
+  async function logInjection(e: React.MouseEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (busy) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      const today = new Date();
+      const iso = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+      const r = await fetch("/api/log-injection", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ date: iso, dose_mg: wegovy.current_dose_mg }),
+      });
+      if (!r.ok) {
+        const t = await r.text();
+        throw new Error(t.slice(0, 120) || `HTTP ${r.status}`);
+      }
+      router.refresh();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "erreur");
+    } finally {
+      setBusy(false);
+    }
+  }
 
   return (
     <Link href="/detail/wegovy" className="wegovy wegovy--link" aria-labelledby="wegovy-label">
@@ -53,11 +90,25 @@ export function WegovyBanner({ wegovy }: Props) {
 
       <div className="wegovy-foot">
         <span>
-          {wegovy.days_to_next_injection !== undefined && (
-            <>prochaine injection {wegovy.days_to_next_injection === 1 ? "demain" : `dans ${wegovy.days_to_next_injection} j`} · </>
+          {wegovy.days_to_next_injection !== undefined && !overdue && (
+            <>prochaine injection {wegovy.days_to_next_injection === 0 ? "aujourd'hui" : wegovy.days_to_next_injection === 1 ? "demain" : `dans ${wegovy.days_to_next_injection} j`} · </>
+          )}
+          {overdue && (
+            <>injection en retard ({daysSince} j) · </>
           )}
           prochaine titration · <strong>{fmtDose(wegovy.next_dose_mg)} mg</strong> dans {wegovy.next_in_weeks} sem.
         </span>
+        {showLogBtn && (
+          <button
+            type="button"
+            onClick={logInjection}
+            disabled={busy}
+            className={`wegovy-log-btn ${overdue ? "wegovy-log-btn--overdue" : ""}`}
+            aria-label="Confirmer l'injection d'aujourd'hui"
+          >
+            {busy ? "…" : err ? "réessayer" : "✓ pris aujourd'hui"}
+          </button>
+        )}
       </div>
     </Link>
   );

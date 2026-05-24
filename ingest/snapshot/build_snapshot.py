@@ -339,7 +339,7 @@ def build_hero(measurements: list[dict], today: date) -> dict:
     }
 
 
-def build_wegovy(today: date) -> dict:
+def build_wegovy(today: date, injections: list[dict] | None = None) -> dict:
     start = date.fromisoformat(WEGOVY_START_ISO)
     day = (today - start).days
     week = day / 7
@@ -349,7 +349,7 @@ def build_wegovy(today: date) -> dict:
         if hi is None or week < hi:
             step_index = i
             break
-    current = WEGOVY_LADDER[step_index - 1]
+    theoretical_current = WEGOVY_LADDER[step_index - 1]
     ladder = []
     for i, s in enumerate(WEGOVY_LADDER, start=1):
         if i < step_index:
@@ -359,16 +359,33 @@ def build_wegovy(today: date) -> dict:
         else:
             st = "upcoming"
         ladder.append({"dose_mg": s["dose_mg"], "status": st})
-    next_dose = WEGOVY_LADDER[step_index]["dose_mg"] if step_index < len(WEGOVY_LADDER) else current["dose_mg"]
-    cur_end_week = current["weeks"][1] if current["weeks"][1] is not None else week
+    next_dose = WEGOVY_LADDER[step_index]["dose_mg"] if step_index < len(WEGOVY_LADDER) else theoretical_current["dose_mg"]
+    cur_end_week = theoretical_current["weeks"][1] if theoretical_current["weeks"][1] is not None else week
     next_in_weeks = max(0, round(cur_end_week - week))
 
-    # Days since last injection (modulo 7 from configured injection weekday).
-    today_weekday = today.weekday()
-    days_since_inj = (today_weekday - WEGOVY_INJECTION_WEEKDAY) % 7
-    days_to_next_inj = (7 - days_since_inj) % 7
-    if days_to_next_inj == 0:
-        days_to_next_inj = 7
+    # Last injection: prefer real logged data over weekday assumption.
+    last_injection_date: date | None = None
+    current_dose_mg = theoretical_current["dose_mg"]
+    is_overdue = False
+    if injections:
+        try:
+            last_injection_date = date.fromisoformat(injections[0]["date"])
+            current_dose_mg = float(injections[0]["dose_mg"])
+        except Exception:
+            last_injection_date = None
+
+    if last_injection_date is not None:
+        days_since_inj = (today - last_injection_date).days
+        days_to_next_inj = max(0, 7 - days_since_inj)
+        is_overdue = days_since_inj > 7
+    else:
+        # Fallback: configured weekday cadence.
+        today_weekday = today.weekday()
+        days_since_inj = (today_weekday - WEGOVY_INJECTION_WEEKDAY) % 7
+        days_to_next_inj = (7 - days_since_inj) % 7
+        if days_to_next_inj == 0:
+            days_to_next_inj = 7
+
     if days_since_inj == 0:
         last_inj_label = "aujourd'hui"
     elif days_since_inj == 1:
@@ -378,7 +395,7 @@ def build_wegovy(today: date) -> dict:
 
     return {
         "day_since_start": day,
-        "current_dose_mg": current["dose_mg"],
+        "current_dose_mg": current_dose_mg,
         "step_index": step_index,
         "ladder": ladder,
         "next_dose_mg": next_dose,
@@ -386,6 +403,8 @@ def build_wegovy(today: date) -> dict:
         "days_since_last_injection": days_since_inj,
         "days_to_next_injection": days_to_next_inj,
         "last_injection_label": last_inj_label,
+        "last_injection_date": last_injection_date.isoformat() if last_injection_date else None,
+        "is_overdue": is_overdue,
     }
 
 
@@ -1869,6 +1888,11 @@ def main() -> None:
         "order": "start_ts.desc",
     })
     huawei_daily = sb_get("huawei_daily", {"select": "*", "order": "date.desc"})
+    try:
+        injections = sb_get("wegovy_injection", {"select": "date,dose_mg,logged_at", "order": "date.desc"})
+    except Exception as e:
+        print(f"  warn: wegovy_injection fetch failed ({e}); falling back to weekday assumption", file=sys.stderr)
+        injections = []
     panels = sb_get("lab_panel", {"select": "id,collected_at,lab_name,panel_name", "order": "collected_at.desc"})
     results = sb_get("lab_result", {"select": "panel_id,marker_code,marker_label,value_num,value_text,unit,ref_low,ref_high,flag,category"})
     labs = latest_lab_panel(panels, results)
@@ -1896,7 +1920,7 @@ def main() -> None:
     payload: dict[str, Any] = {
         "today": today.isoformat(),
         "hero": build_hero(measurements, today),
-        "wegovy": build_wegovy(today),
+        "wegovy": build_wegovy(today, injections),
         "signals": sigs,
         "action_today": build_action_today(sigs),
         "bio_age": build_bio_age(measurements, activity, labs, hc_records, huawei_daily, today),

@@ -33,6 +33,8 @@ export interface WegovyTitration {
   days_since_last_injection?: number;
   days_to_next_injection?: number;
   last_injection_label?: string;
+  last_injection_date?: string | null;
+  is_overdue?: boolean;
 }
 
 export type SignalKind = "ok" | "watch";
