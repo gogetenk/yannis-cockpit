@@ -28,5 +28,7 @@ object Permissions {
         HealthPermission.getReadPermission(Vo2MaxRecord::class),
         HealthPermission.getReadPermission(OxygenSaturationRecord::class),
         HealthPermission.getReadPermission(RespiratoryRateRecord::class),
+        // Unlocks data older than 30 days. Required on Android 14+.
+        HealthPermission.PERMISSION_READ_HEALTH_DATA_HISTORY,
     )
 }

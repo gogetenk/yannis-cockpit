@@ -19,6 +19,10 @@
     <uses-permission android:name="android.permission.health.READ_OXYGEN_SATURATION"/>
     <uses-permission android:name="android.permission.health.READ_RESPIRATORY_RATE"/>
 
+    <!-- CRUCIAL: without this, HC caps reads to last 30 days even if older
+         data exists (Android 14+ default policy). Allows backfill of years. -->
+    <uses-permission android:name="android.permission.health.READ_HEALTH_DATA_HISTORY"/>
+
     <!-- Required on Android 14+ for HC -->
     <queries>
         <package android:name="com.google.android.apps.healthdata"/>
