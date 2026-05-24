@@ -15,7 +15,13 @@ const ASYMP = 74;
 const START = 86.6;
 const SHAPE = 1.4;
 function weightIdeal(t: number) { return ASYMP + (START - ASYMP) * Math.exp(-Math.pow(t / 20, SHAPE)); }
-function weightProjected(t: number) { return ASYMP + (START - ASYMP) * Math.exp(-Math.pow(t / 18, SHAPE)); }
+function weightProjected(t: number, tau: number) { return ASYMP + (START - ASYMP) * Math.exp(-Math.pow(t / tau, SHAPE)); }
+function fitTau(currentKg: number, todayWeek: number): number {
+  if (todayWeek < 2) return 18;
+  const ratio = (currentKg - ASYMP) / (START - ASYMP);
+  if (ratio <= 0 || ratio >= 1) return 18;
+  return todayWeek / Math.pow(Math.log(1 / ratio), 1 / SHAPE);
+}
 
 function deltaPhrase(delta: number, tolerance: number): string {
   // Negative delta = lighter than ideal = ahead of plan.
@@ -73,14 +79,15 @@ export function Hero({ hero }: Props) {
     return samples.join(" ");
   }, [weekToX, wToY, week_max]);
 
+  const personalTau = useMemo(() => fitTau(hero.current_kg, hero.today_week), [hero.current_kg, hero.today_week]);
   const projectionPath = useMemo(() => {
     const samples: string[] = [];
     const start = hero.today_week;
     for (let w = start; w <= week_max; w += 2) {
-      samples.push(`${samples.length === 0 ? "M" : "L"} ${weekToX(w).toFixed(1)} ${wToY(weightProjected(w)).toFixed(1)}`);
+      samples.push(`${samples.length === 0 ? "M" : "L"} ${weekToX(w).toFixed(1)} ${wToY(weightProjected(w, personalTau)).toFixed(1)}`);
     }
     return samples.join(" ");
-  }, [weekToX, wToY, week_max, hero.today_week]);
+  }, [weekToX, wToY, week_max, hero.today_week, personalTau]);
 
   const tolerancePath = useMemo(() => {
     const upper: string[] = [], lower: string[] = [];
@@ -103,10 +110,10 @@ export function Hero({ hero }: Props) {
   // Compute eta X from ideal: find when ideal crosses 75 within range.
   const etaWeeks = useMemo(() => {
     for (let w = 0; w <= week_max + 4; w += 0.1) {
-      if (weightProjected(w) <= 75) return w;
+      if (weightProjected(w, personalTau) <= 75) return w;
     }
     return week_max;
-  }, [week_max]);
+  }, [week_max, personalTau]);
   const etaXcoord = weekToX(Math.min(etaWeeks, week_max));
   const etaYcoord = wToY(75);
 
@@ -123,7 +130,7 @@ export function Hero({ hero }: Props) {
     const t = xToWeek(xView);
     const isFuture = t > hero.today_week;
     const ideal = weightIdeal(t);
-    const actual = isFuture ? weightProjected(t) : weightActual(t);
+    const actual = isFuture ? weightProjected(t, personalTau) : weightActual(t);
     const delta = actual - ideal;
     const wrapRect = wrapRef.current.getBoundingClientRect();
     const ttWidth = tooltipRef.current?.getBoundingClientRect().width || 180;
@@ -133,7 +140,7 @@ export function Hero({ hero }: Props) {
     if (left < pad) left = pad;
     if (left + ttWidth > wrapRect.width - pad) left = wrapRect.width - ttWidth - pad;
     setTip({ xView, yIdeal: wToY(ideal), date: weekToDate(t), ideal, actual, delta, isFuture, left });
-  }, [pointerToViewX, xToWeek, hero.today_week, weightActual, wToY, weekToDate]);
+  }, [pointerToViewX, xToWeek, hero.today_week, weightActual, wToY, weekToDate, personalTau]);
 
   const hide = useCallback(() => setTip(null), []);
 

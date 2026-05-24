@@ -194,9 +194,31 @@ def weight_ideal(t_weeks: float) -> float:
     return ASYMPTOTE_KG + (START_KG - ASYMPTOTE_KG) * math.exp(-math.pow(t_weeks / GOMP_TAU_WEEKS, GOMP_SHAPE))
 
 
-def weight_projected(t_weeks: float, accel: float = 18) -> float:
-    """Personal projection: slightly faster tau if Yannis tracks ahead of mean."""
-    return ASYMPTOTE_KG + (START_KG - ASYMPTOTE_KG) * math.exp(-math.pow(t_weeks / accel, GOMP_SHAPE))
+def weight_projected(t_weeks: float, tau: float = 18) -> float:
+    """Personal projection curve. Tau defaults to STEP-1 cohort mid value (18)
+    but is normally re-fit to actual trajectory via fit_personal_tau()."""
+    return ASYMPTOTE_KG + (START_KG - ASYMPTOTE_KG) * math.exp(-math.pow(t_weeks / tau, GOMP_SHAPE))
+
+
+def fit_personal_tau(current_kg: float, today_week: float) -> float:
+    """Solve Gompertz for tau given (today_week, current_kg).
+    Returns the cohort tau (18) if today_week too small or current_kg already ≤ asymptote."""
+    if today_week < 2:
+        return 18.0
+    ratio = (current_kg - ASYMPTOTE_KG) / (START_KG - ASYMPTOTE_KG)
+    if ratio <= 0 or ratio >= 1:
+        return 18.0
+    return today_week / math.pow(math.log(1 / ratio), 1 / GOMP_SHAPE)
+
+
+def smoothed_current_kg(measurements: list[dict], today: date, days: int = 7) -> float | None:
+    """7-day rolling average of weight, to dampen daily hydration noise."""
+    cutoff = today - timedelta(days=days)
+    weights = [
+        float(m["value"]) for m in measurements
+        if m["type_code"] == 1 and date.fromisoformat(m["ts"][:10]) >= cutoff
+    ]
+    return sum(weights) / len(weights) if weights else None
 
 
 def status_band(delta_kg: float) -> tuple[str, str]:
@@ -259,11 +281,14 @@ def build_hero(measurements: list[dict], today: date) -> dict:
     ideal = weight_ideal(today_week)
     delta = current_kg - ideal
     status_key, status_label = status_band(delta)
-    # ETA at goal weight: first week the projected curve crosses 75 kg.
-    # Asymptote is now 74 kg so 75 is reachable in finite time.
+    # ETA: re-fit tau on the smoothed current weight so the projection
+    # reflects YOUR actual trajectory, not the cohort mean. Use a 7-day
+    # rolling average to absorb daily hydration noise.
+    smoothed = smoothed_current_kg(measurements, today, 7) or current_kg
+    personal_tau = fit_personal_tau(smoothed, today_week)
     eta_week = None
     for w in [today_week + 0.5 * i for i in range(0, 400)]:
-        if weight_projected(w) <= GOAL_KG:
+        if weight_projected(w, personal_tau) <= GOAL_KG:
             eta_week = w
             break
     eta_date = start + timedelta(days=int(eta_week * 7)) if eta_week else (start + timedelta(weeks=80))
