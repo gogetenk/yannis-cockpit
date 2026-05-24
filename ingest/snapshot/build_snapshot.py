@@ -363,7 +363,7 @@ def build_signals(yazio: list[dict], measurements: list[dict], activity: list[di
         out.append({
             "id": "deficit",
             "title": title,
-            "sub": f"{'−' if delta_kg < 0 else '+'}{abs(delta_kg):.1f} kg sur 28 j".replace(".", ","),
+            "sub": "",
             "value": f"{abs(int(round(deficit_per_day))):,}".replace(",", " "),
             "unit": "kcal/j",
             "status": "watch" if watch else "ok",
@@ -382,7 +382,7 @@ def build_signals(yazio: list[dict], measurements: list[dict], activity: list[di
         out.append({
             "id": "protein",
             "title": "Protéines",
-            "sub": f"cible 2,0–2,4 g/kg masse maigre · {len(proteins)} j moy",
+            "sub": "cible 2,0–2,4",
             "value": fmt_num(g_per_kg, 1),
             "unit": "g/kg",
             "status": "watch" if watch else "ok",
@@ -404,8 +404,8 @@ def build_signals(yazio: list[dict], measurements: list[dict], activity: list[di
         watch = avg_min < 380 or avg_hrv < 50
         out.append({
             "id": "sleep_hrv",
-            "title": "Dette sommeil × HRV",
-            "sub": f"sommeil 7j moy {int(avg_min)} min · HRV {int(avg_hrv)} ms",
+            "title": "Dette sommeil",
+            "sub": "cible 7 h/nuit",
             "value": f"{'+' if deficit < 0 else '−'}{abs(int(deficit))} h",
             "unit": "/ 7 j",
             "status": "watch" if watch else "ok",
@@ -420,10 +420,10 @@ def build_signals(yazio: list[dict], measurements: list[dict], activity: list[di
         watch = avg_steps < 9000
         out.append({
             "id": "activity",
-            "title": "Activité 28 j",
-            "sub": f"moyenne {len(recent_act)} j · source Health Connect",
+            "title": "Activité",
+            "sub": "cible 10 k/j",
             "value": f"{int(round(avg_steps)):,}".replace(",", " "),
-            "unit": "pas/j moy",
+            "unit": "pas/j",
             "status": "watch" if watch else "ok",
             "status_label": "à surveiller" if watch else "conforme",
             "spark": _bar_spark([int(a["steps"]) for a in recent_act[-14:]], "ambre" if watch else "sage"),
