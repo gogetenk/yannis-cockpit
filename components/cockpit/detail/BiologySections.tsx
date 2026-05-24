@@ -1,6 +1,7 @@
 "use client";
 import { useMemo, useState } from "react";
 import type { BiologySection } from "@/lib/types";
+import { BiologyGauge } from "./BiologyGauge";
 
 interface Props { sections: BiologySection[] }
 
@@ -52,9 +53,11 @@ export function BiologySections({ sections }: Props) {
                 <li key={m.code} className={"bio-marker" + (m.flag ? " bio-marker--off bio-marker--" + m.flag.toLowerCase() : "")}>
                   <div className="bio-marker-name">
                     <span className="bio-marker-label">{m.label}</span>
-                    {(m.ref_low || m.ref_high) && (
+                    {(m.ref_low !== null || m.ref_high !== null) && (
                       <span className="bio-marker-ref">
-                        {m.ref_low && m.ref_high ? `${m.ref_low}–${m.ref_high}` : m.ref_high ? `< ${m.ref_high}` : `> ${m.ref_low}`} {m.unit}
+                        {m.ref_low !== null && m.ref_high !== null
+                          ? `${m.ref_low}–${m.ref_high}`
+                          : m.ref_high !== null ? `< ${m.ref_high}` : `> ${m.ref_low}`} {m.unit}
                       </span>
                     )}
                   </div>
@@ -62,6 +65,7 @@ export function BiologySections({ sections }: Props) {
                     <span className="bio-marker-num">{m.value}</span>
                     <span className="bio-marker-unit">{m.unit}</span>
                   </div>
+                  <BiologyGauge m={m} />
                   {m.delta_pct !== null && (
                     <div className={"bio-marker-delta " + (Math.abs(m.delta_pct) < 5 ? "neutral" : m.delta_pct < 0 ? "down" : "up")}>
                       {m.delta_pct >= 0 ? "+" : "−"}{Math.abs(m.delta_pct).toFixed(1).replace(".", ",")} %

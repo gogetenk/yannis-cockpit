@@ -1538,15 +1538,28 @@ header.detail-header .detail-back:focus-visible {
 .bio-marker {
   display: grid;
   grid-template-columns: 1fr auto;
-  grid-template-rows: auto auto;
+  grid-template-rows: auto auto auto;
   column-gap: 12px;
-  row-gap: 2px;
-  padding: 10px 0;
+  row-gap: 4px;
+  padding: 12px 0;
   border-top: 1px solid var(--sage-mist);
   align-items: baseline;
 }
 .bio-marker:first-child { border-top: 0; }
 .bio-marker-name { grid-column: 1; grid-row: 1; min-width: 0; }
+.bio-gauge {
+  grid-column: 1 / -1;
+  grid-row: 3;
+  width: 100%;
+  height: 8px;
+  margin-top: 2px;
+  overflow: visible;
+}
+.bio-gauge-track { fill: var(--sage-mist); opacity: 0.5; }
+.bio-gauge-normal { fill: var(--deep-sage); opacity: 0.18; }
+.bio-gauge-value { fill: var(--deep-sage); stroke: var(--warm-cream-rest); stroke-width: 0.6; }
+.bio-gauge-value.off { fill: var(--ambre-brule); }
+.bio-gauge-baseline { fill: none; stroke: var(--sage-ash); stroke-width: 0.8; }
 .bio-marker-label {
   font-size: 13px;
   font-weight: 500;
@@ -1577,6 +1590,7 @@ header.detail-header .detail-back:focus-visible {
 .bio-marker-delta {
   grid-column: 2; grid-row: 2;
   font-size: 11px;
+  margin-top: -2px;
   font-variant-numeric: tabular-nums;
   text-align: right;
 }

@@ -393,24 +393,22 @@ def build_signals(yazio: list[dict], measurements: list[dict], activity: list[di
     # Wegovy response z-score removed: hero already conveys "X kg en avance/retard
     # vs cible idéale", which is the human-readable form of the same z.
 
-    # --- Sleep × HRV: needs hc_raw_record (Health Connect via Android app) ---
-    hrv = _avg_hrv_from_hc(hc_records, today)
+    # --- Sleep debt: works without HRV; HRV only enriches if available ---
     sleep_pts = _sleep_minutes_per_day(hc_records, today, 14)
-    if hrv and len(sleep_pts) >= 5:
-        avg_min = sum(v for _, v in sleep_pts[-7:]) / max(1, len(sleep_pts[-7:]))
-        deficit = (420 - avg_min) * 7 / 60  # hours under target across the week
-        avg_hrv, hrv_series = hrv
-        # crude z vs personal mean (will be sharper once 28d baseline exists)
-        watch = avg_min < 380 or avg_hrv < 50
+    if len(sleep_pts) >= 3:
+        last7 = sleep_pts[-7:]
+        avg_min = sum(v for _, v in last7) / len(last7)
+        deficit = (420 - avg_min) * len(last7) / 60  # hours under 7h target
+        watch = avg_min < 380
         out.append({
-            "id": "sleep_hrv",
+            "id": "sleep",
             "title": "Dette sommeil",
             "sub": "cible 7 h/nuit",
             "value": f"{'+' if deficit < 0 else '−'}{abs(int(deficit))} h",
-            "unit": "/ 7 j",
+            "unit": f"/ {len(last7)} j",
             "status": "watch" if watch else "ok",
             "status_label": "à surveiller" if watch else "conforme",
-            "spark": _line_spark(hrv_series, "ambre" if watch else "sage"),
+            "spark": _bar_spark([v for _, v in last7], "ambre" if watch else "sage"),
         })
 
     # --- Steps / activity ---
@@ -1303,24 +1301,30 @@ def build_detail_biology(panels: list[dict], results: list[dict], today: date, c
             prior = prior_markers.get(r["marker_code"])
             delta_str = None
             delta_pct = None
-            if prior and r.get("value_num") is not None and prior.get("value_num") is not None:
-                v = float(r["value_num"])
+            baseline_num = None
+            v_num = float(r["value_num"]) if r.get("value_num") is not None else None
+            if prior and v_num is not None and prior.get("value_num") is not None:
                 p = float(prior["value_num"])
+                baseline_num = p
                 if p != 0:
-                    delta_str = f"{'+' if v >= p else '−'}{abs(v - p):.2f}".replace(".", ",").rstrip("0").rstrip(",")
-                    delta_pct = round((v - p) / p * 100, 1)
+                    delta_str = f"{'+' if v_num >= p else '−'}{abs(v_num - p):.2f}".replace(".", ",").rstrip("0").rstrip(",")
+                    delta_pct = round((v_num - p) / p * 100, 1)
             value_display = (
-                f"{float(r['value_num']):g}".replace(".", ",")
-                if r.get("value_num") is not None
+                f"{v_num:g}".replace(".", ",")
+                if v_num is not None
                 else (r.get("value_text") or "—")
             )
+            ref_low_num = float(r["ref_low"]) if r.get("ref_low") is not None else None
+            ref_high_num = float(r["ref_high"]) if r.get("ref_high") is not None else None
             section_markers.append({
                 "code": r["marker_code"],
                 "label": r.get("marker_label") or r["marker_code"],
                 "value": value_display,
+                "value_num": v_num,
+                "baseline_num": baseline_num,
                 "unit": r.get("unit") or "",
-                "ref_low": (str(float(r["ref_low"])).rstrip("0").rstrip(".") if r.get("ref_low") is not None else None),
-                "ref_high": (str(float(r["ref_high"])).rstrip("0").rstrip(".") if r.get("ref_high") is not None else None),
+                "ref_low": ref_low_num,
+                "ref_high": ref_high_num,
                 "flag": r.get("flag"),
                 "delta_str": delta_str,
                 "delta_pct": delta_pct,

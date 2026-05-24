@@ -102,9 +102,11 @@ export interface BiologyMarker {
   code: string;
   label: string;
   value: string;
+  value_num: number | null;
+  baseline_num: number | null;
   unit: string;
-  ref_low: string | null;
-  ref_high: string | null;
+  ref_low: number | null;
+  ref_high: number | null;
   flag: "H" | "L" | null;
   delta_str: string | null;
   delta_pct: number | null;

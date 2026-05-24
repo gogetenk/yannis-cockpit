@@ -16,9 +16,9 @@ export default async function Page() {
     <>
       <AppHeader today={data.today} />
       <Hero hero={data.hero} />
+      <SignalsSection signals={data.signals} />
       <WegovyBanner wegovy={data.wegovy} />
       {data.biology && <BiologyCard bio={data.biology} />}
-      <SignalsSection signals={data.signals} />
       <main className="grid" aria-label="Piliers santé">
         <BioAgeTile bioAge={data.bio_age} />
         {data.pillars.map(p => <PillarTile key={p.key} pillar={p} />)}
