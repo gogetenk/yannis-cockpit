@@ -873,7 +873,7 @@ def build_bio_age(measurements: list[dict], activity: list[dict] | None = None, 
     vo2_value: float | None = None
     if vo2:
         vo2_value = float(vo2["value"])
-    elif huawei_daily and (hr_min := _huawei_rest_hr_min_30d(huawei_daily, today)) is not None:
+    elif huawei_daily and (hr_min := _huawei_rest_hr_p10_30d(huawei_daily, today)) is not None:
         vo2_value = vo2max_uth(hr_min, chrono)
     elif VO2_MAX_FALLBACK:
         vo2_value = float(VO2_MAX_FALLBACK)
@@ -994,21 +994,29 @@ def _huawei_5y_summary(huawei_daily: list[dict], today: date) -> dict:
         "stress_chronic_now_7d": round(sum(stress_7) / len(stress_7), 1) if stress_7 else None,
         "stress_baseline_90d": round(sum(stress_90) / len(stress_90), 1) if stress_90 else None,
         "sleep_deep_pct_30d": round(sum(deep_pct_30) / len(deep_pct_30), 1) if deep_pct_30 else None,
-        "vo2max_uth": vo2max_uth(min(rest_hr_30), CHRONO_AGE) if rest_hr_30 else None,
+        "vo2max_uth": vo2max_uth(sorted(rest_hr_30)[max(0, int(len(rest_hr_30) * 0.10))], CHRONO_AGE) if rest_hr_30 else None,
         "vo2max_huawei_last_manual": VO2_MAX_FALLBACK,
     }
 
 
-def _huawei_rest_hr_min_30d(huawei_daily: list[dict], today: date) -> float | None:
-    """Min of daily rest_hr_min over last 30 days (Huawei). The trough = real
-    resting HR; nightly minima fluctuate so we take the lowest of the window."""
+def _huawei_rest_hr_p10_30d(huawei_daily: list[dict], today: date) -> float | None:
+    """10th percentile of daily rest_hr_min over last 30 days (Huawei).
+
+    Using the absolute min was too sensitive to PPG artefacts (the Huawei
+    watch occasionally records anomalously low resting HR readings during
+    motion or poor contact), which then overestimated VO2max via Uth.
+    The 10th percentile is a robust baseline: it captures genuine low
+    nights while clipping the bottom outliers.
+    """
     cutoff = today - timedelta(days=30)
-    vals = [
+    vals = sorted(
         float(r["rest_hr_min"]) for r in huawei_daily
         if r.get("rest_hr_min") is not None
         and date.fromisoformat(r["date"]) >= cutoff
-    ]
-    return min(vals) if vals else None
+    )
+    if not vals:
+        return None
+    return vals[max(0, int(len(vals) * 0.10))]
 
 
 def _avg_hr_from_hc(hc_records: list[dict], today: date) -> float | None:
