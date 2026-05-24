@@ -81,8 +81,40 @@ export type PillarKey = "composition" | "activity" | "cardio" | "recovery";
 
 // Extended set of detail pages. Wegovy is not a "pillar" per se (it shows
 // as a banner on the home), but users may want to drill into the full
-// titration plan + STEP-1 methodology.
-export type DetailKey = PillarKey | "wegovy";
+// titration plan + STEP-1 methodology. Same for biology (lab panel report).
+export type DetailKey = PillarKey | "wegovy" | "biology";
+
+export interface BiologySummary {
+  last_panel_date: string;
+  last_panel_label: string;
+  lab_name: string;
+  phenoage: number;
+  phenoage_delta: number;
+  lifetime_cv_risk_pct: number;
+  lifetime_cv_risk_label: string;
+  days_since_last: number;
+  days_until_next: number;
+  next_recommended_date: string;
+  n_markers: number;
+}
+
+export interface BiologyMarker {
+  code: string;
+  label: string;
+  value: string;
+  unit: string;
+  ref_low: string | null;
+  ref_high: string | null;
+  flag: "H" | "L" | null;
+  delta_str: string | null;
+  delta_pct: number | null;
+}
+
+export interface BiologySection {
+  key: string;
+  label: string;
+  markers: BiologyMarker[];
+}
 
 export interface DetailTrajectory {
   // Long-form trajectory (12–36 months). x: months from start, y: metric value.
@@ -145,6 +177,7 @@ export interface CockpitSnapshot {
   wegovy: WegovyTitration;
   signals: Signal[];
   bio_age: BioAge;
+  biology?: BiologySummary;
   pillars: PillarTile[];
-  pillar_detail?: Partial<Record<DetailKey, PillarDetail>>;
+  pillar_detail?: Partial<Record<DetailKey, PillarDetail & { sections?: BiologySection[] }>>;
 }

@@ -3,6 +3,7 @@ import { AppHeader } from "@/components/cockpit/AppHeader";
 import { Hero } from "@/components/cockpit/Hero";
 import { WegovyBanner } from "@/components/cockpit/WegovyBanner";
 import { SignalsSection } from "@/components/cockpit/SignalsSection";
+import { BiologyCard } from "@/components/cockpit/BiologyCard";
 import { BioAgeTile } from "@/components/cockpit/BioAgeTile";
 import { PillarTile } from "@/components/cockpit/PillarTile";
 
@@ -16,6 +17,7 @@ export default async function Page() {
       <AppHeader today={data.today} />
       <Hero hero={data.hero} />
       <WegovyBanner wegovy={data.wegovy} />
+      {data.biology && <BiologyCard bio={data.biology} />}
       <SignalsSection signals={data.signals} />
       <main className="grid" aria-label="Piliers santé">
         <BioAgeTile bioAge={data.bio_age} />

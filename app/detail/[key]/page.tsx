@@ -6,11 +6,12 @@ import { DetailTrajectory } from "@/components/cockpit/detail/DetailTrajectory";
 import { MeasurementsTable } from "@/components/cockpit/detail/MeasurementsTable";
 import { MethodCard } from "@/components/cockpit/detail/MethodCard";
 import { SubTrajectories } from "@/components/cockpit/detail/SubTrajectories";
+import { BiologySections } from "@/components/cockpit/detail/BiologySections";
 import type { DetailKey } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
-const VALID_KEYS: DetailKey[] = ["composition", "activity", "cardio", "recovery", "wegovy"];
+const VALID_KEYS: DetailKey[] = ["composition", "activity", "cardio", "recovery", "wegovy", "biology"];
 
 export default async function DetailPage({ params }: { params: Promise<{ key: string }> }) {
   const { key } = await params;
@@ -32,6 +33,7 @@ export default async function DetailPage({ params }: { params: Promise<{ key: st
         <DetailHero hero={detail.hero} />
         <DetailTrajectory trajectory={detail.trajectory} />
         {detail.subs && detail.subs.length > 0 && <SubTrajectories subs={detail.subs} />}
+        {detail.sections && detail.sections.length > 0 && <BiologySections sections={detail.sections} />}
         <MeasurementsTable rows={detail.table} />
         <MethodCard sections={detail.method} cross_link={detail.cross_link} />
       </div>

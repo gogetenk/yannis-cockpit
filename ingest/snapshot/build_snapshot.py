@@ -485,6 +485,52 @@ def phenoage_levine(markers: dict, chrono_yr: float) -> float | None:
     return 141.50 + math.log(-0.00553 * math.log(max(1 - M, 1e-9))) / 0.09165
 
 
+def lifetime_cv_risk(markers: dict, age_yr: float, bmi: float | None = None) -> tuple[int, str]:
+    """ACC/AHA Lifetime CV Risk for adults <50 (Lloyd-Jones 2006, Berry 2012
+    NEJM). Stratified into 5 categories based on classic risk factors at age
+    of assessment. Returns (pct_risk, category_label).
+
+    Categories (male, lifetime to age 80):
+      all_optimal: chol<180 + BP<120/80 + no DM + no smoking      → 5%
+      >=1_not_optimal: any in suboptimal range                    → 36%
+      >=1_elevated: any chol 200-239 OR BP 140-159/90-99          → 39%
+      >=1_major: chol>=240 OR BP>=160/100 OR DM OR smoker         → 50%
+      >=2_major: two or more major risk factors                   → 69%
+    """
+    def get(code: str) -> float | None:
+        r = markers.get(code)
+        return float(r["value_num"]) if r and r.get("value_num") is not None else None
+
+    chol = get("CholT")
+    hba1c = get("HbA1c")
+    glu = get("Glu")
+    # BP and smoking not in lab panel — assume optimal (true for Yannis).
+    sbp_optimal = True
+    dbp_optimal = True
+    non_smoker = True
+    diabetes = (hba1c is not None and hba1c >= 6.5) or (glu is not None and glu >= 126)
+
+    major = 0
+    elevated = 0
+    not_optimal = 0
+    if chol is not None:
+        if chol >= 240: major += 1
+        elif chol >= 200: elevated += 1
+        elif chol >= 180: not_optimal += 1
+    if diabetes: major += 1
+    if not non_smoker: major += 1
+
+    if major >= 2:
+        return 69, "≥2 facteurs majeurs"
+    if major >= 1:
+        return 50, "≥1 facteur majeur"
+    if elevated >= 1:
+        return 39, "≥1 facteur élevé"
+    if not_optimal >= 1:
+        return 36, "≥1 facteur sous-optimal"
+    return 5, "tous optimaux"
+
+
 def build_bio_age(measurements: list[dict], activity: list[dict] | None = None, labs: tuple | None = None) -> dict:
     """Bio age composite from what we can actually measure. Blood is held at
     chrono since labs are not ingested yet. Each subage rounds to nearest yr."""
@@ -1125,6 +1171,165 @@ def _sample_monthly(rows: list[dict], today: date, months: int) -> list[dict]:
 
 # ---------- main ----------------------------------------------------------
 
+CATEGORY_LABELS = {
+    "lipids": "Lipides",
+    "cardio_risk": "Risque cardio",
+    "cardio_enzyme": "Enzymes cardiaques",
+    "inflammation": "Inflammation",
+    "metabolic": "Métabolique",
+    "renal": "Rénal",
+    "hepatic": "Hépatique",
+    "cbc": "Hématologie (NFS)",
+    "iron": "Fer",
+    "vitamin": "Vitamines",
+    "endocrine": "Hormones",
+    "thyroid": "Thyroïde",
+    "electrolyte": "Électrolytes",
+    "micronutrient": "Micronutriments",
+    "autoimmune": "Auto-immun",
+    "tumor": "Marqueurs tumoraux",
+    "infection": "Infection",
+}
+CATEGORY_ORDER = [
+    "lipids", "cardio_risk", "cardio_enzyme", "inflammation",
+    "metabolic", "renal", "hepatic", "cbc", "endocrine", "thyroid",
+    "vitamin", "iron", "micronutrient", "electrolyte",
+    "autoimmune", "tumor", "infection",
+]
+
+
+def build_biology(panels: list[dict], results: list[dict], today: date, chrono_yr: float = 35.2) -> dict | None:
+    """Top-level biology card: PhenoAge + Lifetime CV risk + cycle to next bilan."""
+    if not panels:
+        return None
+    latest_pair = latest_lab_panel(panels, results)
+    if not latest_pair:
+        return None
+    latest_panel, markers = latest_pair
+    pa = phenoage_levine(markers, chrono_yr)
+    if pa is None:
+        return None
+    risk_pct, risk_label = lifetime_cv_risk(markers, chrono_yr)
+    coll = datetime.fromisoformat(latest_panel["collected_at"].replace("Z", "+00:00")).date()
+    days_since = (today - coll).days
+    next_recommended = coll + timedelta(days=180)
+    days_until_next = (next_recommended - today).days
+    return {
+        "last_panel_date": coll.isoformat(),
+        "last_panel_label": fmt_date_fr(coll),
+        "lab_name": latest_panel.get("lab_name") or "labo",
+        "phenoage": round(pa, 1),
+        "phenoage_delta": round(pa - chrono_yr, 1),
+        "lifetime_cv_risk_pct": risk_pct,
+        "lifetime_cv_risk_label": risk_label,
+        "days_since_last": days_since,
+        "days_until_next": days_until_next,
+        "next_recommended_date": next_recommended.isoformat(),
+        "n_markers": len(markers),
+    }
+
+
+def build_detail_biology(panels: list[dict], results: list[dict], today: date, chrono_yr: float = 35.2) -> dict | None:
+    """Full lab report page: every marker grouped by system, deltas vs baseline."""
+    if not panels:
+        return None
+    pair = latest_lab_panel(panels, results)
+    if not pair:
+        return None
+    latest_panel, latest_markers = pair
+    # Find prior panel (baseline) if any.
+    prior_panels = [p for p in panels if p["id"] != latest_panel["id"]]
+    prior_markers: dict = {}
+    prior_panel = None
+    if prior_panels:
+        prior_panel = max(prior_panels, key=lambda p: p["collected_at"])
+        prior_markers = {r["marker_code"]: r for r in results if r["panel_id"] == prior_panel["id"]}
+
+    # Group markers by category, ordered per CATEGORY_ORDER.
+    grouped: dict[str, list[dict]] = {}
+    for code, r in latest_markers.items():
+        cat = r.get("category") or "other"
+        grouped.setdefault(cat, []).append(r)
+
+    sections = []
+    for cat in CATEGORY_ORDER:
+        rows = grouped.get(cat)
+        if not rows:
+            continue
+        # Sort by abnormal first, then by label.
+        rows_sorted = sorted(rows, key=lambda r: (r.get("flag") is None, r.get("marker_label") or ""))
+        section_markers = []
+        for r in rows_sorted:
+            prior = prior_markers.get(r["marker_code"])
+            delta_str = None
+            delta_pct = None
+            if prior and r.get("value_num") is not None and prior.get("value_num") is not None:
+                v = float(r["value_num"])
+                p = float(prior["value_num"])
+                if p != 0:
+                    delta_str = f"{'+' if v >= p else '−'}{abs(v - p):.2f}".replace(".", ",").rstrip("0").rstrip(",")
+                    delta_pct = round((v - p) / p * 100, 1)
+            value_display = (
+                f"{float(r['value_num']):g}".replace(".", ",")
+                if r.get("value_num") is not None
+                else (r.get("value_text") or "—")
+            )
+            section_markers.append({
+                "code": r["marker_code"],
+                "label": r.get("marker_label") or r["marker_code"],
+                "value": value_display,
+                "unit": r.get("unit") or "",
+                "ref_low": (str(float(r["ref_low"])).rstrip("0").rstrip(".") if r.get("ref_low") is not None else None),
+                "ref_high": (str(float(r["ref_high"])).rstrip("0").rstrip(".") if r.get("ref_high") is not None else None),
+                "flag": r.get("flag"),
+                "delta_str": delta_str,
+                "delta_pct": delta_pct,
+            })
+        sections.append({
+            "key": cat,
+            "label": CATEGORY_LABELS.get(cat, cat.title()),
+            "markers": section_markers,
+        })
+
+    coll = datetime.fromisoformat(latest_panel["collected_at"].replace("Z", "+00:00")).date()
+    prior_coll = (
+        datetime.fromisoformat(prior_panel["collected_at"].replace("Z", "+00:00")).date()
+        if prior_panel else None
+    )
+    pa = phenoage_levine(latest_markers, chrono_yr)
+    risk_pct, risk_label = lifetime_cv_risk(latest_markers, chrono_yr)
+    return {
+        "key": "biology",
+        "title": "Bilan biologique",
+        "meta": f"{latest_panel.get('lab_name','labo')} · prélevé {fmt_date_fr(coll)} · {len(latest_markers)} marqueurs"
+                + (f" · baseline {fmt_date_fr(prior_coll)}" if prior_coll else ""),
+        "hero": {
+            "figure": f"{pa:.0f}",
+            "unit": f"ans · PhenoAge ({pa - chrono_yr:+.1f} vs chrono)".replace(".", ","),
+            "delta_label": f"Risque CV à vie {risk_pct} % · {risk_label}",
+            "status_label": "Bilan à jour" if (today - coll).days < 180 else "À renouveler",
+            "status_off": (today - coll).days >= 200,
+        },
+        "trajectory": {
+            "x_label": "PhenoAge mesurée",
+            "y_unit": "ans",
+            "y_min": max(20, int(pa) - 5),
+            "y_max": int(chrono_yr) + 10,
+            "points": ([{"date": fmt_date_fr(prior_coll), "value": chrono_yr}] if prior_coll else [])
+                + [{"date": fmt_date_fr(coll), "value": round(pa, 1)}],
+            "target": {"value": chrono_yr, "label": f"chrono {int(chrono_yr)} ans"},
+        },
+        "table": [],
+        "subs": [],
+        "method": [
+            {"heading": "PhenoAge (Levine 2018)", "body": "Levine ML et al., Aging (Albany NY) 2018;10(4):573-91. Validée sur NHANES III (n=9 926) + UK Biobank, prédit mortalité 10 ans avec C-statistic 0,84. Combine 9 marqueurs : albumine, créatinine, glucose, hsCRP, lymphocytes %, MCV, RDW, ALP, leucocytes + âge chronologique. NE prend PAS en compte cholestérol/LDL (qui mesurent risque CV futur, pas vieillissement actuel)."},
+            {"heading": "Risque CV à vie (Lloyd-Jones 2006 / Berry 2012)", "body": "Lifetime Risk ACC/AHA, validé sur cohortes CARDIA + Framingham + ARIC + MESA. Stratification 5 catégories selon facteurs de risque actuels (cholestérol total, TA, diabète, tabac). Recommandé par ACC/AHA pour les <40 ans (où Pooled Cohort Equations 10-ans n'est pas validée). Levier majeur : chaque −1 mmol/L LDL = −22 % d'événements CV (CTT Collaboration Lancet 2010)."},
+            {"heading": "Cycle de renouvellement", "body": "Recommandation bilan complet tous les 6 mois en phase Wegovy active. Cycle de référence : 180 jours."},
+        ],
+        "sections": sections,
+    }
+
+
 def main() -> None:
     for k in ("SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"):
         env(k)
@@ -1166,6 +1371,9 @@ def main() -> None:
     if recovery_detail:
         pillar_detail["recovery"] = recovery_detail
     pillar_detail["wegovy"] = build_detail_wegovy(measurements, today)
+    bio_detail = build_detail_biology(panels, results, today)
+    if bio_detail:
+        pillar_detail["biology"] = bio_detail
 
     payload: dict[str, Any] = {
         "today": today.isoformat(),
@@ -1173,6 +1381,7 @@ def main() -> None:
         "wegovy": build_wegovy(today),
         "signals": build_signals(yazio, measurements, activity, hc_records, today),
         "bio_age": build_bio_age(measurements, activity, labs),
+        "biology": build_biology(panels, results, today),
         "pillars": build_pillars(yazio, measurements, activity, hc_records, today),
         "pillar_detail": pillar_detail,
     }
