@@ -38,7 +38,7 @@ def detect(df: pd.DataFrame, today: date) -> list[InsightCandidate]:
 
     n_high = int((window["pct_e_sat"] > 10).sum())
     median = float(window["pct_e_sat"].median())
-    if n_high < 10 or median <= 10:
+    if n_high < 7 or median <= 10:
         return []
 
     coverage = adjusted_measured_ratio(window, "fat_sat_g_source")
