@@ -287,6 +287,27 @@ def build_row_raw(
     sugar_g = _pick(micros, SUGAR_IDS)
     fiber_g = _pick(micros, FIBER_IDS)
 
+    # Plausibility filters — Yazio per-food entries can carry wildly wrong
+    # nutrient values (a beer logged as 500 g ethanol, salt-as-sodium unit
+    # confusions, etc.). Drop physically impossible values to None rather
+    # than pollute baselines/insights.
+    if alcohol_g is not None:
+        # Hard cap: 150 g ethanol/day = 15 standard drinks. Anything above
+        # is implausible while logging coherent meals.
+        if alcohol_g > 150:
+            alcohol_g = None
+        # Energy-coherence: ethanol = 7 kcal/g. Cannot exceed 50% of total
+        # logged kcal — beyond that, the entry contradicts the day's totals.
+        elif kcal is not None and kcal > 0 and (alcohol_g * 7.0) > 0.5 * kcal:
+            alcohol_g = None
+    if sodium_mg is not None and sodium_mg > 10000:
+        # >10 g sodium/day = ~25 g of salt = lethal range. Unit confusion or
+        # bad entry. Drop.
+        sodium_mg = None
+    if fat_sat_g is not None and fat_g is not None and fat_g > 0 and fat_sat_g > fat_g * 1.05:
+        # Saturés > total fat (+5% tolerance for rounding) = parsing error.
+        fat_sat_g = None
+
     def pct_e(g: float | None) -> float | None:
         if g is None or kcal is None or kcal <= 0:
             return None
