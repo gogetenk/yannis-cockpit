@@ -722,6 +722,33 @@ def main() -> None:
             file=sys.stderr,
         )
 
+    # Also apply any active llm_review_* row that did NOT come from this
+    # build's rule pass (e.g. alcohol_false_zero is detected at scan time
+    # against raw food_items, not as part of sanitize.apply). Without this
+    # patch, the daily_features.alcohol_g for those days would remain at the
+    # raw (0 g) Yazio value.
+    existing_reviews = _load_active_llm_reviews()
+    standalone_overrides: dict[str, dict[str, float | None]] = {}
+    for (d_iso, nid), refined in existing_reviews.items():
+        already = llm_overrides.get(d_iso, {})
+        if nid in already:
+            continue
+        # Conservative: only apply standalone reviews that *raise* the value.
+        # Veto/confirm verdicts on alcohol_false_zero return 0 or None on a
+        # day where raw_value was 0 -- safe no-op for the daily_features
+        # alcohol column. Skipping them avoids the risk of stomping on a
+        # legitimate non-zero Yazio total that some other code path produced.
+        if refined is None or float(refined) <= 0:
+            continue
+        standalone_overrides.setdefault(d_iso, {})[nid] = refined
+    if standalone_overrides:
+        _apply_llm_overrides_to_rows(raw_rows, standalone_overrides)
+        print(
+            f"[features] applied {sum(len(v) for v in standalone_overrides.values())} "
+            f"standalone LLM review(s) across {len(standalone_overrides)} day(s)",
+            file=sys.stderr,
+        )
+
     persist_corrections(all_corrections)
 
     compute_zscores(raw_rows)
