@@ -30,8 +30,11 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import subprocess
 import sys
+import tempfile
 from datetime import date, datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any
 
 import requests
@@ -135,6 +138,22 @@ def main() -> int:
         file=sys.stderr,
     )
 
+    # Login ONCE upfront and reuse the token across all dates. Without this
+    # the helper logs in on every call -> hundreds of logins -> rate-limit.
+    tmpdir = tempfile.mkdtemp(prefix="yazio-scan-")
+    token_path = Path(tmpdir) / "token.txt"
+    print(f"[scan] logging into Yazio (token cached at {token_path})", file=sys.stderr)
+    subprocess.run(
+        [
+            "yazio-exporter", "login",
+            os.environ["YAZIO_EMAIL"], os.environ["YAZIO_PASSWORD"],
+            "-o", str(token_path),
+        ],
+        check=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+
     # Dates that already have a yazio_day row -- we only scan those, to
     # avoid burning API quota on days the user never logged.
     yazio_days = sb_get(
@@ -194,7 +213,7 @@ def main() -> int:
 
         n_scanned += 1
         try:
-            items = fetch_food_items(d_iso)
+            items = fetch_food_items(d_iso, token_path=token_path)
         except Exception as e:
             print(f"  [{d_iso}] fetch failed: {e}", file=sys.stderr)
             continue
