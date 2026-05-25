@@ -8,6 +8,7 @@ import { BioAgeTile } from "@/components/cockpit/BioAgeTile";
 import { PillarTile } from "@/components/cockpit/PillarTile";
 import { AICard } from "@/components/cockpit/AICard";
 import { InsightsCard } from "@/components/cockpit/InsightsCard";
+import { CorrectionsCard } from "@/components/cockpit/CorrectionsCard";
 
 export const dynamic = "force-dynamic";
 
@@ -27,6 +28,7 @@ export default async function Page() {
         <BioAgeTile bioAge={data.bio_age} />
         {data.pillars.map(p => <PillarTile key={p.key} pillar={p} />)}
       </main>
+      <CorrectionsCard />
     </>
   );
 }

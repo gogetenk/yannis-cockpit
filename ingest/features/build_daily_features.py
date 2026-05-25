@@ -37,6 +37,14 @@ from typing import Any
 
 import requests
 
+# Sanitization layer lives in ingest/yazio. Add the project root to sys.path
+# so this script (run from ingest/features/) can import it without packaging.
+_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+if _ROOT not in sys.path:
+    sys.path.insert(0, _ROOT)
+
+from ingest.yazio import sanitize  # noqa: E402
+
 
 # ---------- nutrient_id detection ---------------------------------------
 # yazio_micronutrient_daily only exposes minerals/vitamins today. We still
@@ -287,26 +295,28 @@ def build_row_raw(
     sugar_g = _pick(micros, SUGAR_IDS)
     fiber_g = _pick(micros, FIBER_IDS)
 
-    # Plausibility filters — Yazio per-food entries can carry wildly wrong
-    # nutrient values (a beer logged as 500 g ethanol, salt-as-sodium unit
-    # confusions, etc.). Drop physically impossible values to None rather
-    # than pollute baselines/insights.
-    if alcohol_g is not None:
-        # Hard cap: 150 g ethanol/day = 15 standard drinks. Anything above
-        # is implausible while logging coherent meals.
-        if alcohol_g > 150:
-            alcohol_g = None
-        # Energy-coherence: ethanol = 7 kcal/g. Cannot exceed 50% of total
-        # logged kcal — beyond that, the entry contradicts the day's totals.
-        elif kcal is not None and kcal > 0 and (alcohol_g * 7.0) > 0.5 * kcal:
-            alcohol_g = None
-    if sodium_mg is not None and sodium_mg > 10000:
-        # >10 g sodium/day = ~25 g of salt = lethal range. Unit confusion or
-        # bad entry. Drop.
-        sodium_mg = None
-    if fat_sat_g is not None and fat_g is not None and fat_g > 0 and fat_sat_g > fat_g * 1.05:
-        # Saturés > total fat (+5% tolerance for rounding) = parsing error.
-        fat_sat_g = None
+    # Plausibility sanitization — delegated to ingest/yazio/sanitize.py.
+    # Each drop emits a Correction record that the caller batches into the
+    # `yazio_correction` audit table. Rules: alcohol hard cap, alcohol-kcal
+    # coherence, sodium hard cap, sat>fat, sugar>carb, fiber>carb.
+    raw_pack = {
+        sanitize.NUT_ALCOHOL: alcohol_g,
+        sanitize.NUT_SODIUM: sodium_mg,
+        sanitize.NUT_FAT_SAT: fat_sat_g,
+        sanitize.NUT_SUGAR: sugar_g,
+        sanitize.NUT_FIBER: fiber_g,
+    }
+    # apply() ignores None entries.
+    raw_pack_clean = {k: v for k, v in raw_pack.items() if v is not None}
+    sanitized, day_corrections = sanitize.apply(d, kcal, fat_g, carb_g, raw_pack_clean)
+    alcohol_g = sanitized.get(sanitize.NUT_ALCOHOL, alcohol_g)
+    sodium_mg = sanitized.get(sanitize.NUT_SODIUM, sodium_mg)
+    fat_sat_g = sanitized.get(sanitize.NUT_FAT_SAT, fat_sat_g)
+    sugar_g = sanitized.get(sanitize.NUT_SUGAR, sugar_g)
+    fiber_g = sanitized.get(sanitize.NUT_FIBER, fiber_g)
+    # Stash corrections on the resulting row so the caller can collect them
+    # without re-running the rules. Stripped before upsert.
+    _corrections_for_row = day_corrections
 
     def pct_e(g: float | None) -> float | None:
         if g is None or kcal is None or kcal <= 0:
@@ -364,6 +374,7 @@ def build_row_raw(
     wegovy_dose_mg, wegovy_days_since_injection = wegovy_state_for(d, wegovy_ladder)
 
     return {
+        "__corrections": _corrections_for_row,  # stripped before upsert
         "date": d.isoformat(),
         "kcal": kcal,
         "protein_g": protein_g,
@@ -529,12 +540,93 @@ def main() -> None:
         for d in full_dates
     ]
 
+    # Pull out corrections collected per row, then strip the helper field
+    # so it doesn't leak into the upsert payload.
+    all_corrections: list[sanitize.Correction] = []
+    for r in raw_rows:
+        cs = r.pop("__corrections", None) or []
+        if date.fromisoformat(r["date"]) >= since:
+            all_corrections.extend(cs)
+
+    persist_corrections(all_corrections)
+
     compute_zscores(raw_rows)
 
     # Only upsert rows whose date >= since.
     to_upsert = [r for r in raw_rows if date.fromisoformat(r["date"]) >= since]
     n = sb_upsert(to_upsert, "daily_features", "date")
     print(f"[features] upserted {n} rows (>= {since})", file=sys.stderr)
+
+
+# ---------- corrections persistence -------------------------------------
+
+def _load_active_correction_keys() -> set[tuple[str, str, str]]:
+    """Return the set of (date, nutrient_id, rule_key) for active corrections.
+
+    Used to dedupe before insert so re-running the populator does not stack
+    identical corrections every day. A correction is considered the same as
+    long as it has not been reverted (reverted_at IS NULL).
+    """
+    rows = sb_get(
+        "yazio_correction",
+        {"select": "date,nutrient_id,rule_key", "reverted_at": "is.null"},
+    )
+    out: set[tuple[str, str, str]] = set()
+    for r in rows:
+        d = str(r.get("date") or "")[:10]
+        nid = r.get("nutrient_id") or ""
+        rk = r.get("rule_key") or ""
+        if d and nid:
+            out.add((d, nid, rk))
+    return out
+
+
+def persist_corrections(corrections: list[sanitize.Correction]) -> None:
+    """Insert new corrections, skipping any whose (date, nutrient, rule)
+    triple is already active in the table."""
+    if not corrections:
+        print("[features] no Yazio corrections to record", file=sys.stderr)
+        return
+    try:
+        existing = _load_active_correction_keys()
+    except Exception as e:  # pragma: no cover - network failure path
+        print(f"[features] could not load existing corrections: {e}", file=sys.stderr)
+        return
+
+    fresh: list[dict] = []
+    for c in corrections:
+        key = (c.date, c.nutrient_id, c.rule_key or "")
+        if key in existing:
+            continue
+        fresh.append(c.to_row())
+        existing.add(key)
+
+    if not fresh:
+        print(
+            f"[features] {len(corrections)} corrections produced; "
+            "all already on file (no-op)",
+            file=sys.stderr,
+        )
+        return
+
+    # Plain insert (no upsert) — the unique key includes applied_at, so
+    # POSTing fresh rows always succeeds. Dedup against the active set above
+    # is what keeps the table from growing on every run.
+    url = f"{env('SUPABASE_URL')}/rest/v1/yazio_correction"
+    headers = {**sb_headers(), "Prefer": "return=minimal"}
+    batch = 500
+    for i in range(0, len(fresh), batch):
+        chunk = fresh[i : i + batch]
+        r = requests.post(url, headers=headers, data=json.dumps(chunk), timeout=60)
+        if not r.ok:
+            sys.exit(
+                f"insert yazio_correction failed {r.status_code}: {r.text[:500]}"
+            )
+    print(
+        f"[features] inserted {len(fresh)} new Yazio corrections "
+        f"(skipped {len(corrections) - len(fresh)} already on file)",
+        file=sys.stderr,
+    )
 
 
 if __name__ == "__main__":

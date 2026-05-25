@@ -207,6 +207,30 @@ export interface CockpitSnapshot {
 export type InsightFamily = 1 | 4 | 5;
 export type InsightSeverity = "info" | "watch" | "alert";
 
+// ===========================================================================
+// CORRECTIONS — sanitization audit log (yazio_correction table).
+// Surfaced as a small card so the user sees, in plain language, which raw
+// Yazio values were dropped or coerced by the deterministic rules (and
+// later, by the LLM sanity pass).
+// ===========================================================================
+
+export type CorrectionSource = "rule" | "llm";
+
+export interface Correction {
+  id: string;
+  date: string;              // ISO YYYY-MM-DD
+  nutrient_id: string;       // e.g. 'nutrient.alcohol'
+  raw_value: number;
+  sanitized_value: number | null; // null = dropped entirely
+  source: CorrectionSource;
+  rule_key: string | null;
+  llm_model: string | null;
+  llm_confidence: number | null;
+  reason: string;
+  applied_at: string;        // ISO timestamp
+  reverted_at: string | null;
+}
+
 export interface Insight {
   id: string;
   detector_key: string;

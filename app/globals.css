@@ -1917,3 +1917,89 @@ header.detail-header .detail-back:focus-visible {
   line-height: 1;
   align-self: center;
 }
+
+/* ===========================================================
+   CORRECTIONS CARD — discreet audit of Yazio sanitization.
+   Same container vocabulary as .insights-card / .signals.
+   Renders only when there is at least one active correction.
+   =========================================================== */
+.corrections-card {
+  background: var(--warm-cream-rest);
+  margin: 16px var(--pad-screen) 0;
+  border-radius: var(--rounded-banner);
+  padding: 14px 16px 8px;
+}
+.corrections-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 8px;
+}
+.corrections-head h3 {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--sage-ash);
+}
+.corrections-count {
+  font-size: 11px;
+  color: var(--sage-ash);
+  font-variant-numeric: tabular-nums;
+}
+.corrections-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.correction {
+  border-top: 1px solid var(--sage-mist);
+  padding: 10px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.correction:first-child { border-top: 0; }
+.correction-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--sage-ink);
+  font-variant-numeric: tabular-nums;
+}
+.correction-sep {
+  color: var(--sage-ash);
+  font-weight: 400;
+}
+.correction-nutrient { color: var(--sage-ink); }
+.correction-values {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+}
+.correction-raw {
+  color: var(--sage-ash);
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+  text-decoration-color: var(--sage-mist);
+}
+.correction-arrow {
+  color: var(--sage-ash);
+  font-weight: 400;
+}
+.correction-san  { color: var(--deep-sage); }
+.correction-dropped {
+  color: var(--ambre-brule);
+  font-style: italic;
+  font-weight: 500;
+}
+.correction-reason {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--sage-ash);
+  line-height: 1.4;
+}
