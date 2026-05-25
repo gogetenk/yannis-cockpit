@@ -285,9 +285,17 @@ def latest_weight_kg(measurements: list[dict]) -> tuple[float, datetime] | None:
 
 
 def compute_start_kg(measurements: list[dict], start: date, window_days: int = 14) -> float | None:
-    # STEP-1 screening style: take max weight in [start-window, start] as
-    # baseline. Captures the elevated pre-treatment state (e.g. post-vacation)
-    # so the ideal curve is anchored to the real high, not an arbitrary const.
+    # Anchor START_KG to the first plotted weekly bucket (week 0 average from
+    # real_weight_points). Guarantees the first plotted point sits exactly on
+    # the ideal curve at W0 → centered in the tolerance band. Falls back to
+    # the max weight in [start-window, start] if no W0 reading yet.
+    w0_values = [
+        float(m["value"]) for m in measurements
+        if m["type_code"] == 1
+        and start <= date.fromisoformat(m["ts"][:10]) < start + timedelta(days=7)
+    ]
+    if w0_values:
+        return sum(w0_values) / len(w0_values)
     lo = start - timedelta(days=window_days)
     weights = [
         float(m["value"]) for m in measurements
