@@ -50,6 +50,37 @@ NUTRIENT_KEY = {
     "fat": "nutrient.fat",
 }
 
+# These keys live inside `daily_summary.meals[*].nutrients` alongside the four
+# base macros. We aggregate them across meals and forward to the
+# yazio_micronutrient_daily table so detectors (budget_saturated_fat,
+# budget_alcohol, Mensink LDL projection, alcohol→BP, etc.) can read them.
+#
+# The exact Yazio keys vary across regions; we capture any `nutrient.*` /
+# `mineral.*` key that appears in the meals payload (minus the 4 base macros
+# already projected into yazio_day columns), which makes the ingest
+# future-proof: new tracked nutrients land automatically.
+BASE_MACRO_KEYS = frozenset(NUTRIENT_KEY.values())
+EXTRA_NUTRIENT_PREFIXES = ("nutrient.", "mineral.", "vitamin.")
+
+# Macros tracked by Yazio that the daily/vitamin/mineral endpoints don't
+# return on their own. We hit the `specific-nutrient-daily` endpoint for each
+# (via `yazio-exporter nutrients --nutrients=…`); unknown IDs come back as an
+# empty dict so listing variants is safe.
+EXTRA_NUTRIENT_IDS = [
+    "nutrient.saturated",
+    "nutrient.monounsaturated",
+    "nutrient.polyunsaturated",
+    "nutrient.sugar",
+    "nutrient.fiber",
+    "nutrient.dietaryfiber",
+    "nutrient.salt",
+    "nutrient.sodium",
+    "mineral.sodium",
+    "nutrient.alcohol",
+    "nutrient.cholesterol",
+    "nutrient.water",
+]
+
 
 def env(name: str) -> str:
     value = os.environ.get(name)
@@ -80,6 +111,7 @@ def run_exporter(out_dir: Path, days_window: int) -> None:
     days_json = out_dir / "days.json"
     weight_json = out_dir / "weight.json"
     nutrients_json = out_dir / "nutrients.json"
+    extras_json = out_dir / "nutrients_extra.json"
 
     run(["yazio-exporter", "login", env("YAZIO_EMAIL"), env("YAZIO_PASSWORD"), "-o", str(token)])
     run([
@@ -92,10 +124,18 @@ def run_exporter(out_dir: Path, days_window: int) -> None:
         "-t", str(token), "-f", start, "-e", end,
         "-o", str(weight_json), "--format", "json",
     ])
+    # Default: all vitamins + minerals (constants.ALL_VITAMINS + ALL_MINERALS).
     run([
         "yazio-exporter", "nutrients",
         "-t", str(token), "-f", start, "-e", end,
         "-o", str(nutrients_json), "--format", "json",
+    ])
+    # Explicit macro pull. Unknown IDs return an empty dict — safe to over-list.
+    run([
+        "yazio-exporter", "nutrients",
+        "-t", str(token), "-f", start, "-e", end,
+        "--nutrients", ",".join(EXTRA_NUTRIENT_IDS),
+        "-o", str(extras_json), "--format", "json",
     ])
 
 
@@ -183,9 +223,9 @@ def parse_weight(out_dir: Path) -> dict[str, float]:
     return json.loads(path.read_text())
 
 
-def parse_micronutrients(out_dir: Path) -> list[dict]:
+def parse_micronutrients(out_dir: Path, filename: str = "nutrients.json") -> list[dict]:
     """nutrients.json = {nutrient_id: {date: value}}. Flatten to rows."""
-    path = out_dir / "nutrients.json"
+    path = out_dir / filename
     if not path.exists():
         return []
     raw = json.loads(path.read_text())
@@ -200,6 +240,102 @@ def parse_micronutrients(out_dir: Path) -> list[dict]:
     return rows
 
 
+def normalize_units(rows: list[dict]) -> list[dict]:
+    """Convert sodium-class rows to milligrams.
+
+    Yazio returns sodium and salt in grams. Detectors compare sodium to
+    AHA/EFSA thresholds (~2300 mg/d), so we store mg. We also synthesize
+    `nutrient.sodium` from `nutrient.salt` (NaCl mass fraction = 0.393) when
+    sodium isn't otherwise reported for that date.
+    """
+    # Group rows by (date, key) -> value, then transform.
+    by_date_key: dict[tuple[str, str], float] = {}
+    other: list[dict] = []
+    SODIUM_KEYS = {"nutrient.sodium", "mineral.sodium"}
+    for row in rows:
+        key = row["nutrient_id"]
+        d = row["date"]
+        if key in SODIUM_KEYS or key == "nutrient.salt":
+            try:
+                by_date_key[(d, key)] = float(row["value"])
+            except (TypeError, ValueError):
+                continue
+        else:
+            other.append(row)
+
+    # Derive sodium from salt where missing.
+    dates_with_salt = {d for (d, k) in by_date_key if k == "nutrient.salt"}
+    for d in dates_with_salt:
+        has_sodium = any((d, sk) in by_date_key for sk in SODIUM_KEYS)
+        if not has_sodium:
+            salt_g = by_date_key[(d, "nutrient.salt")]
+            by_date_key[(d, "nutrient.sodium")] = salt_g * 0.393
+
+    # Heuristic g→mg conversion: any sodium value < 50 is grams.
+    normalized: list[dict] = list(other)
+    for (d, k), v in by_date_key.items():
+        if k in SODIUM_KEYS and v < 50:
+            v = v * 1000.0
+        normalized.append({"date": d, "nutrient_id": k, "value": v})
+    return normalized
+
+
+def parse_extra_macros(out_dir: Path) -> list[dict]:
+    """Extract per-date macro/micro nutrients from days.json meal payloads.
+
+    Yazio's `daily_summary.meals[*].nutrients` map already contains
+    saturated fat, sugar, fiber, sodium/salt, alcohol, cholesterol, etc. when
+    the user logs foods that report them. We sum each nutrient across the four
+    meal slots and emit yazio_micronutrient_daily rows — except for the four
+    base macros (energy/protein/carb/fat) which are already in yazio_day.
+
+    Sodium is normalized: if Yazio reports `nutrient.salt` (g, NaCl), we also
+    emit a derived `nutrient.sodium` row (mg) using salt_g * 1000 * 0.393
+    (sodium mass fraction in NaCl). If `nutrient.sodium` is already present in
+    grams we convert it to mg. Detectors read sodium in mg.
+    """
+    path = out_dir / "days.json"
+    if not path.exists():
+        return []
+    raw = json.loads(path.read_text())
+
+    rows: list[dict] = []
+    for iso_date, day in raw.items():
+        summary = (day or {}).get("daily_summary") or {}
+        meal_map = summary.get("meals") or {}
+        # Aggregate per nutrient_id across meals.
+        totals: dict[str, float] = {}
+        for meal_name in MEAL_KEYS:
+            nutrients = ((meal_map or {}).get(meal_name) or {}).get("nutrients") or {}
+            if not isinstance(nutrients, dict):
+                continue
+            for key, value in nutrients.items():
+                if value is None:
+                    continue
+                if key in BASE_MACRO_KEYS:
+                    continue
+                if not isinstance(key, str) or not key.startswith(EXTRA_NUTRIENT_PREFIXES):
+                    continue
+                try:
+                    totals[key] = totals.get(key, 0.0) + float(value)
+                except (TypeError, ValueError):
+                    continue
+
+        for nutrient_id, value in totals.items():
+            rows.append({"date": iso_date, "nutrient_id": nutrient_id, "value": value})
+
+    return rows
+
+
+def merge_micro_rows(*sources: list[dict]) -> list[dict]:
+    """Merge multiple lists of micronutrient rows, last-write-wins per (date, nutrient_id)."""
+    merged: dict[tuple[str, str], dict] = {}
+    for src in sources:
+        for row in src:
+            merged[(row["date"], row["nutrient_id"])] = row
+    return list(merged.values())
+
+
 def main() -> None:
     for name in REQUIRED_ENV:
         env(name)
@@ -210,9 +346,14 @@ def main() -> None:
         weights = parse_weight(out_dir)
         day_rows, meal_rows = parse_days(out_dir, weights)
         micro_rows = parse_micronutrients(out_dir)
+        extras_rows = parse_micronutrients(out_dir, filename="nutrients_extra.json")
+        extra_macro_rows = parse_extra_macros(out_dir)
+        all_micro_rows = normalize_units(
+            merge_micro_rows(micro_rows, extras_rows, extra_macro_rows)
+        )
         upsert(day_rows, "yazio_day", "date")
         upsert(meal_rows, "yazio_meal", "date,meal")
-        upsert(micro_rows, "yazio_micronutrient_daily", "date,nutrient_id")
+        upsert(all_micro_rows, "yazio_micronutrient_daily", "date,nutrient_id")
     print("done", file=sys.stderr)
 
 

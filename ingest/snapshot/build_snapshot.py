@@ -284,6 +284,19 @@ def latest_weight_kg(measurements: list[dict]) -> tuple[float, datetime] | None:
     return float(latest["value"]), ts
 
 
+def compute_start_kg(measurements: list[dict], start: date, window_days: int = 14) -> float | None:
+    # STEP-1 screening style: take max weight in [start-window, start] as
+    # baseline. Captures the elevated pre-treatment state (e.g. post-vacation)
+    # so the ideal curve is anchored to the real high, not an arbitrary const.
+    lo = start - timedelta(days=window_days)
+    weights = [
+        float(m["value"]) for m in measurements
+        if m["type_code"] == 1
+        and lo <= date.fromisoformat(m["ts"][:10]) <= start
+    ]
+    return max(weights) if weights else None
+
+
 def real_weight_points(measurements: list[dict], start: date, today: date) -> list[dict]:
     """One weight point per week since Wegovy start, weekly average."""
     weights = [m for m in measurements if m["type_code"] == 1]
@@ -1959,6 +1972,17 @@ def main() -> None:
     results = sb_get("lab_result", {"select": "panel_id,marker_code,marker_label,value_num,value_text,unit,ref_low,ref_high,flag,category"})
     labs = latest_lab_panel(panels, results)
     print(f"  loaded: {len(measurements)} withings rows, {len(activity)} activity days, {len(yazio)} yazio days, {len(hc_records)} HC records, {len(huawei_daily)} huawei_daily rows, {len(panels)} lab panels ({len(results)} results)", file=sys.stderr)
+
+    # Anchor START_KG to the real pre-injection peak (J-14 → J0) so the
+    # ideal trajectory starts at the measured baseline, not a hardcoded const.
+    # ASYMPTOTE_KG scales proportionally to preserve the cohort drop ratio.
+    global START_KG, ASYMPTOTE_KG
+    computed_start = compute_start_kg(measurements, date.fromisoformat(WEGOVY_START_ISO))
+    if computed_start is not None:
+        drop_ratio = ASYMPTOTE_KG / START_KG
+        START_KG = round(computed_start, 2)
+        ASYMPTOTE_KG = round(START_KG * drop_ratio, 2)
+        print(f"  baseline anchored: START_KG={START_KG} (peak pre-J1), ASYMPTOTE_KG={ASYMPTOTE_KG}", file=sys.stderr)
 
     pillar_detail: dict[str, Any] = {}
     comp_detail = build_pillar_detail_composition(measurements, today)
