@@ -39,17 +39,10 @@ def detect(df: pd.DataFrame, today: date) -> list[InsightCandidate]:
         sbp_vals = window["sbp"].dropna()
         if not sbp_vals.empty:
             sbp_mean = float(sbp_vals.mean())
-            sbp_clause = (
-                f" SBP moyenne sur la même fenêtre: {sbp_mean:.0f} mmHg "
-                f"(rappel Di Federico 2023: +1.25 mmHg par 12g/j d'alcool, "
-                f"effet dose-dépendant)."
-            )
+            sbp_clause = f" SBP moy {sbp_mean:.0f} mmHg sur la fenêtre."
 
-    title = f"Alcool 7j: {total:.0f}g (cible <=98g)"
-    body = (
-        f"Sur les 7 derniers jours, total alcool {total:.0f}g vs cible "
-        f"OMS faible-risque 98g/sem ({DAILY_TARGET_G:.0f}g/j).{sbp_clause}"
-    )
+    title = f"Alcool 7j : {total:.0f} g"
+    body = f"Au-dessus du seuil OMS (98 g/sem).{sbp_clause}"
 
     return [
         InsightCandidate(

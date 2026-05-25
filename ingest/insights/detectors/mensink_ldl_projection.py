@@ -140,16 +140,8 @@ def detect(df: pd.DataFrame, today: date, sb_client: Any) -> list[InsightCandida
     last_d = pd.to_datetime(win["date"].max()).date()
     n_days = len(win)
 
-    title = f"Projection LDL prochain bilan: ~{projected:.0f} mg/dL"
-    direction = "hausse" if delta_ldl > 0 else "baisse"
-    body = (
-        f"Depuis ton dernier bilan ({since.isoformat()}, LDL "
-        f"{last_ldl['value']:.0f} mg/dL), %E SFA moyen {mean_sat:.1f}% vs "
-        f"référence {REFERENCE_PCT_E_SAT:.0f}% (Δ {d_sat:+.1f}). Projection "
-        f"Mensink-Katan: {direction} de {delta_ldl:+.0f} mg/dL → ~{projected:.0f} "
-        f"mg/dL au prochain bilan. Un remplacement SFA→PUFA réduit "
-        f"directement ce delta."
-    )
+    title = f"LDL projeté : ~{projected:.0f} mg/dL"
+    body = f"Dernier bilan {last_ldl['value']:.0f}, dérive {delta_ldl:+.0f} sur {n_days} j de suivi."
 
     return [
         InsightCandidate(

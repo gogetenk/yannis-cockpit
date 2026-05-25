@@ -1860,23 +1860,27 @@ header.detail-header .detail-back:focus-visible {
   border-top: 1px solid var(--sage-mist);
 }
 .insight:first-child { border-top: 0; }
-.insight-link,
+.insight,
+.insight-link {
+  text-decoration: none;
+  color: inherit;
+}
 .insight {
   display: grid;
   grid-template-columns: 10px 1fr auto;
   column-gap: 12px;
   align-items: start;
   padding: 12px 0;
-  text-decoration: none;
-  color: inherit;
-}
-.insight-link {
-  padding: 0;
 }
 .insight.insight--link {
+  display: block;
   padding: 0;
 }
 .insight.insight--link .insight-link {
+  display: grid;
+  grid-template-columns: 10px 1fr auto;
+  column-gap: 12px;
+  align-items: start;
   padding: 12px 0;
 }
 .insight-dot {

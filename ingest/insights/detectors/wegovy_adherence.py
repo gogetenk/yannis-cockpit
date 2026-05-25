@@ -50,23 +50,12 @@ def detect(today: date, sb_client: Any) -> list[InsightCandidate]:
     severity = "alert" if n_late >= 2 else "watch"
     magnitude = min(15.0, n_late * 5.0)
 
-    parts = []
-    if gaps:
-        examples = ", ".join(
-            f"{a.isoformat()}→{b.isoformat()} ({g}j)" for a, b, g in gaps[-3:]
-        )
-        parts.append(f"{len(gaps)} intervalle(s) > 8j sur 8 semaines ({examples})")
+    title = f"Wegovy : {n_late} retard(s)"
     if overdue_now:
-        parts.append(
-            f"dernière injection {last_inj.isoformat()} = {today_gap}j (rythme hebdo)"
-        )
-
-    title = f"Adhérence Wegovy: {n_late} décalage(s) détecté(s)"
-    body = (
-        "Rythme cible: 1 injection / 7j. " + " ; ".join(parts) +
-        ". Les décalages réduisent l'exposition moyenne au sémaglutide et "
-        "peuvent atténuer l'effet anorexigène la semaine suivante."
-    )
+        body = f"Dernière injection {last_inj.isoformat()}, soit {today_gap} j (cible 7)."
+    else:
+        max_gap = max((g for _, _, g in gaps), default=0)
+        body = f"{len(gaps)} intervalle(s) > 8 j sur 8 sem (max {max_gap} j)."
 
     return [
         InsightCandidate(

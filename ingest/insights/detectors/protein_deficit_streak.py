@@ -55,13 +55,8 @@ def detect(df: pd.DataFrame, today: date) -> list[InsightCandidate]:
     severity = "alert" if streak >= 7 else "watch"
     magnitude = min(15.0, float(streak))
 
-    title = f"Protéines: {streak} jours consécutifs sous cible (1.6 g/kg)"
-    body = (
-        f"Sur les {streak} derniers jours, apport moyen {mean_protein:.0f}g/j "
-        f"vs cible {mean_target:.0f}g/j (~{pct:.0f}%). En contexte Wegovy + "
-        f"déficit calorique, un apport insuffisant accroît le risque de "
-        f"perte de masse maigre — à regarder."
-    )
+    title = f"Protéines : {streak} j sous cible"
+    body = f"{mean_protein:.0f} g/j vs cible {mean_target:.0f} g (1,6 g/kg)."
 
     return [
         InsightCandidate(

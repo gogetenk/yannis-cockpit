@@ -33,14 +33,8 @@ def detect(df: pd.DataFrame, today: date) -> list[InsightCandidate]:
     magnitude = min(15.0, max(0.0, (median - 10.0) * 2.0))
     last_d = pd.to_datetime(window["date"].max()).date()
 
-    title = f"Saturés au-dessus de cible: {n_high}/14 jours > 10%E"
-    body = (
-        f"Sur les 14 derniers jours, la part d'énergie issue des graisses "
-        f"saturées est en médiane à {median:.1f}%E (cible AHA <=6%E, seuil "
-        f"de tolérance 10%E). Mensink-Katan a montré qu'un remplacement "
-        f"SFA→PUFA d'environ 5%E baisse le LDL d'environ 10 mg/dL — à "
-        f"regarder côté sources (charcuterie, fromage, huile de palme)."
-    )
+    title = f"Saturés : {median:.0f} %E sur 14 j"
+    body = f"{n_high}/14 jours au-dessus de 10 %E (cible AHA ≤ 6)."
 
     return [
         InsightCandidate(

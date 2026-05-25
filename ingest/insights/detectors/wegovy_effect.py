@@ -70,13 +70,8 @@ def detect(df: pd.DataFrame, today: date) -> list[InsightCandidate]:
     severity = "info" if abs(delta) < 400 else "watch"
     magnitude = min(15.0, abs(delta) / 50.0)
 
-    title = f"Effet Wegovy mesuré: {delta:+.0f} kcal/j vs baseline"
-    body = (
-        f"Depuis le J1 Wegovy ({WEGOVY_START.isoformat()}), apport moyen "
-        f"{post_mean:.0f} kcal/j ({len(post)}j) vs baseline 180j pré-Wegovy "
-        f"{pre_mean:.0f} kcal/j ({len(pre)}j). Δ = {delta:+.0f} kcal/j."
-        f"{plateau_note}"
-    )
+    title = f"Effet Wegovy : {delta:+.0f} kcal/j"
+    body = f"Apport {post_mean:.0f} kcal/j vs baseline {pre_mean:.0f}.{plateau_note}"
 
     return [
         InsightCandidate(
