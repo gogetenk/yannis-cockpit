@@ -43,7 +43,7 @@ _ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__
 if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
-from ingest.yazio import llm_sanity, sanitize  # noqa: E402
+from ingest.yazio import enrich_estimation, llm_sanity, sanitize  # noqa: E402
 
 try:
     from ingest.yazio.fetch_food_items import fetch_food_items as _fetch_food_items
@@ -196,6 +196,10 @@ def _apply_llm_overrides_to_rows(
             if field is None:
                 continue
             row[field] = refined
+            # Provenance: mark the field as LLM-reviewed (sanitize escalation).
+            source_field = f"{field}_source"
+            if source_field in row or refined is not None:
+                row[source_field] = "llm_review" if refined is not None else None
             # Re-derive pct_e_sat if saturated fat changed.
             if field == "fat_sat_g" and row.get("kcal"):
                 kcal = row.get("kcal")
@@ -300,6 +304,36 @@ def load_yazio_day() -> dict[date, dict]:
     for r in rows:
         d = date.fromisoformat(r["date"])
         out[d] = r
+    return out
+
+
+def load_yazio_meals() -> dict[date, list[dict]]:
+    """Per-date list of meal rows (kcal + macros + meal slot name).
+
+    Used by `enrich_estimation` to give the LLM enough context to estimate
+    missing micronutrients (fat_sat/sodium/sugar/fiber/alcohol) on days
+    where Yazio's photo-AI logger only returned macros.
+    """
+    rows = sb_get(
+        "yazio_meal",
+        {"select": "date,meal,kcal,protein_g,carb_g,fat_g"},
+    )
+    out: dict[date, list[dict]] = defaultdict(list)
+    for r in rows:
+        try:
+            d = date.fromisoformat(r["date"])
+        except (TypeError, ValueError):
+            continue
+        out[d].append(
+            {
+                "name": r.get("meal"),
+                "meal": r.get("meal"),
+                "kcal": r.get("kcal"),
+                "protein_g": r.get("protein_g"),
+                "carb_g": r.get("carb_g"),
+                "fat_g": r.get("fat_g"),
+            }
+        )
     return out
 
 
@@ -532,6 +566,15 @@ def build_row_raw(
     # wegovy
     wegovy_dose_mg, wegovy_days_since_injection = wegovy_state_for(d, wegovy_ladder)
 
+    # Provenance: any non-null micronutrient at this point comes from Yazio
+    # (raw_pack_clean was sourced from yazio_micronutrient_daily). The LLM
+    # estimator runs later and only fills slots that are still None here.
+    fat_sat_g_source = "yazio" if fat_sat_g is not None else None
+    sodium_mg_source = "yazio" if sodium_mg is not None else None
+    sugar_g_source = "yazio" if sugar_g is not None else None
+    fiber_g_source = "yazio" if fiber_g is not None else None
+    alcohol_g_source = "yazio" if alcohol_g is not None else None
+
     return {
         "__corrections": _corrections_for_row,  # stripped before upsert
         "date": d.isoformat(),
@@ -540,10 +583,15 @@ def build_row_raw(
         "carb_g": carb_g,
         "fat_g": fat_g,
         "fat_sat_g": fat_sat_g,
+        "fat_sat_g_source": fat_sat_g_source,
         "fiber_g": fiber_g,
+        "fiber_g_source": fiber_g_source,
         "sodium_mg": sodium_mg,
+        "sodium_mg_source": sodium_mg_source,
         "alcohol_g": alcohol_g,
+        "alcohol_g_source": alcohol_g_source,
         "sugar_g": sugar_g,
+        "sugar_g_source": sugar_g_source,
         "pct_e_sat": pct_e_sat,
         "pct_e_pufa": pct_e_pufa,
         "pct_e_mufa": pct_e_mufa,
@@ -564,6 +612,124 @@ def build_row_raw(
         "wegovy_dose_mg": wegovy_dose_mg,
         "wegovy_days_since_injection": wegovy_days_since_injection,
     }
+
+
+# ---------- LLM micronutrient estimation (fill missing Yazio micros) ----
+
+_MICRO_FIELDS = ("fat_sat_g", "sodium_mg", "sugar_g", "fiber_g", "alcohol_g")
+
+
+def enrich_rows_with_llm_estimates(
+    rows: list[dict],
+    meals_by_date: dict[date, list[dict]],
+    since: date,
+    *,
+    force: bool = False,
+    existing_sources_by_date: dict[str, dict[str, str | None]] | None = None,
+) -> tuple[int, int]:
+    """For each in-scope row missing any of the 5 micros, ask Haiku to fill them.
+
+    Mutates rows in place. Returns (n_dates_processed, n_nutrients_filled).
+
+    Skips dates where:
+      - no meals were logged in yazio_meal (LLM has no anchor)
+      - all 5 micros are already populated (yazio or prior llm_*)
+      - `force=False` AND every missing field already has a non-null
+        `_source` recorded in `existing_sources_by_date` (idempotent backrun)
+    """
+    n_dates = 0
+    n_filled = 0
+    existing_sources_by_date = existing_sources_by_date or {}
+    for row in rows:
+        d_iso = row["date"]
+        try:
+            d = date.fromisoformat(d_iso)
+        except (TypeError, ValueError):
+            continue
+        if d < since:
+            continue
+        # Which micros are still None on this row?
+        missing = [f for f in _MICRO_FIELDS if row.get(f) is None]
+        if not missing:
+            continue
+        meals = meals_by_date.get(d) or []
+        if not meals:
+            continue
+        # Idempotency: skip if every missing field already has a recorded
+        # source upstream (meaning we ran the estimator before and it failed
+        # to anchor any value). Without `force`, don't waste an API call.
+        if not force:
+            prior = existing_sources_by_date.get(d_iso, {})
+            if missing and all(prior.get(f) is not None for f in missing):
+                continue
+
+        existing_micros: dict[str, float | None] = {
+            f: row.get(f) for f in _MICRO_FIELDS
+        }
+        daily_macros = {
+            "kcal": row.get("kcal"),
+            "protein_g": row.get("protein_g"),
+            "carb_g": row.get("carb_g"),
+            "fat_g": row.get("fat_g"),
+        }
+        try:
+            estimates = enrich_estimation.estimate_day_micros(
+                d_iso, meals, existing_micros, daily_macros
+            )
+        except Exception as e:
+            print(
+                f"[features] enrich_estimation failed for {d_iso}: {e}",
+                file=sys.stderr,
+            )
+            continue
+        n_dates += 1
+        if not estimates:
+            continue
+        for field, payload in estimates.items():
+            if field not in _MICRO_FIELDS:
+                continue
+            row[field] = payload["value"]
+            row[f"{field}_source"] = payload["source"]
+            n_filled += 1
+            # Re-derive pct_e_sat when SFA was estimated.
+            if field == "fat_sat_g":
+                kcal = row.get("kcal")
+                if kcal and kcal > 0 and payload["value"] is not None:
+                    row["pct_e_sat"] = round(
+                        (payload["value"] * 9.0) / kcal * 100.0, 2
+                    )
+    return n_dates, n_filled
+
+
+def _load_existing_sources() -> dict[str, dict[str, str | None]]:
+    """Map date_iso -> {field_source: value} for the source columns already on
+    daily_features. Used by backrun --skip-existing and as cheap idempotency
+    for the cron path."""
+    try:
+        rows = sb_get(
+            "daily_features",
+            {
+                "select": (
+                    "date,fat_sat_g_source,sodium_mg_source,sugar_g_source,"
+                    "fiber_g_source,alcohol_g_source"
+                ),
+            },
+        )
+    except Exception as e:
+        print(
+            f"[features] could not load existing source columns: {e}",
+            file=sys.stderr,
+        )
+        return {}
+    out: dict[str, dict[str, str | None]] = {}
+    for r in rows:
+        d = str(r.get("date") or "")[:10]
+        if not d:
+            continue
+        out[d] = {
+            f"{f}_source": r.get(f"{f}_source") for f in _MICRO_FIELDS
+        }
+    return out
 
 
 # ---------- z-scores -----------------------------------------------------
@@ -656,6 +822,7 @@ def main() -> None:
     print(f"[features] since={since} today={today}", file=sys.stderr)
 
     yz_by_d = load_yazio_day()
+    meals_by_d = load_yazio_meals()
     micros_by_d = load_yazio_micros()
     wm_by_d = load_withings_measurements()
     wa_by_d = load_withings_activity()
@@ -750,6 +917,24 @@ def main() -> None:
         )
 
     persist_corrections(all_corrections)
+
+    # LLM micronutrient estimation: fill the 5 micros for days where Yazio
+    # only returned macros+kcal (typically photo-AI logged meals). Idempotent
+    # via the *_source columns; cron re-runs skip days already processed.
+    existing_sources = _load_existing_sources()
+    n_dates_llm, n_filled_llm = enrich_rows_with_llm_estimates(
+        raw_rows,
+        meals_by_d,
+        since,
+        force=False,
+        existing_sources_by_date=existing_sources,
+    )
+    if n_dates_llm:
+        print(
+            f"[features] LLM micro estimation: {n_dates_llm} day(s) processed, "
+            f"{n_filled_llm} nutrient(s) filled",
+            file=sys.stderr,
+        )
 
     compute_zscores(raw_rows)
 
