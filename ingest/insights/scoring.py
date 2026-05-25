@@ -14,7 +14,37 @@ from dataclasses import dataclass, field
 from datetime import date
 from typing import Any
 
+import pandas as pd
+
 SEVERITY_WEIGHT = {"alert": 80, "watch": 50, "info": 20}
+SEVERITY_DOWNSCOPE = {"alert": "watch", "watch": "info", "info": "info"}
+
+# Per-source reliability weights for "is this row a real measurement?"
+# - 'yazio'        : direct DB entry from Yazio          → fully measured
+# - 'llm_review'   : Yazio raw existed but LLM corrected → still grounded
+# - 'mixed'        : partial measurement                 → half-credit
+# - 'llm_estimate' : pure LLM macro→nutrient estimate    → unmeasured
+_SOURCE_WEIGHTS = {
+    "yazio": 1.0,
+    "llm_review": 1.0,
+    "mixed": 0.5,
+    "llm_estimate": 0.0,
+}
+
+
+def adjusted_measured_ratio(df: "pd.DataFrame", source_col: str) -> float:
+    """Weighted ratio of rows that come from real measurements vs LLM estimates.
+
+    Returns 1.0 if the column does not exist (legacy data), so detectors keep
+    behaving as before until the new `<nutrient>_source` columns are populated.
+    """
+    if source_col not in df.columns:
+        return 1.0
+    s = df[source_col].fillna("yazio")
+    if len(s) == 0:
+        return 1.0
+    weights = s.map(_SOURCE_WEIGHTS).fillna(1.0)
+    return float(weights.sum() / len(weights))
 
 
 @dataclass

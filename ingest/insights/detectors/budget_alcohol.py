@@ -12,7 +12,13 @@ from datetime import date
 
 import pandas as pd
 
-from ..scoring import InsightCandidate, iso_week_bucket, recency_from_last_date
+from ..scoring import (
+    SEVERITY_DOWNSCOPE,
+    InsightCandidate,
+    adjusted_measured_ratio,
+    iso_week_bucket,
+    recency_from_last_date,
+)
 
 DAILY_TARGET_G = 14.0
 WEEKLY_THRESHOLD_G = DAILY_TARGET_G * 7  # 98g
@@ -30,7 +36,15 @@ def detect(df: pd.DataFrame, today: date) -> list[InsightCandidate]:
     if total <= WEEKLY_THRESHOLD_G:
         return []
 
+    # llm_review on alcohol = false-zero correction on a *named* item, so it
+    # remains very reliable; the default weights already credit it 1.0.
+    coverage = adjusted_measured_ratio(window, "alcohol_g_source")
+    if coverage < 0.2:
+        return []
+
     severity = "alert" if total > 150 else "watch"
+    if coverage < 0.5:
+        severity = SEVERITY_DOWNSCOPE.get(severity, severity)
     magnitude = min(15.0, max(0.0, (total - WEEKLY_THRESHOLD_G) / 10.0))
     last_d = pd.to_datetime(window["date"].max()).date()
 
@@ -43,6 +57,8 @@ def detect(df: pd.DataFrame, today: date) -> list[InsightCandidate]:
 
     title = f"Alcool 7j : {total:.0f} g"
     body = f"Au-dessus du seuil OMS (98 g/sem).{sbp_clause}"
+    if coverage < 0.7:
+        body += " (estimation partielle des apports)"
 
     return [
         InsightCandidate(
@@ -57,6 +73,7 @@ def detect(df: pd.DataFrame, today: date) -> list[InsightCandidate]:
                 "total_g": round(total, 1),
                 "threshold_g": WEEKLY_THRESHOLD_G,
                 "last_date": last_d.isoformat(),
+                "coverage": round(coverage, 3),
             },
             metric_keys=["alcohol_g", "sbp"],
             link_href="/detail/cardio",

@@ -20,7 +20,12 @@ from typing import Any
 
 import pandas as pd
 
-from ..scoring import InsightCandidate, recency_from_last_date
+from ..scoring import (
+    SEVERITY_DOWNSCOPE,
+    InsightCandidate,
+    adjusted_measured_ratio,
+    recency_from_last_date,
+)
 
 REFERENCE_PCT_E_SAT = 10.0
 REFERENCE_PCT_E_PUFA = 6.0
@@ -129,19 +134,31 @@ def detect(df: pd.DataFrame, today: date, sb_client: Any) -> list[InsightCandida
     if abs(delta_ldl) < MIN_DELTA_LDL and not crosses_target:
         return []
 
+    coverage = adjusted_measured_ratio(win, "fat_sat_g_source")
+    # Projection requires at least some grounded SFA signal.
+    if coverage < 0.3:
+        return []
+
     if projected > 130:
         severity = "alert"
     elif projected > LDL_TARGET or abs(delta_ldl) >= 10:
         severity = "watch"
     else:
         severity = "info"
+    if coverage < 0.5:
+        severity = SEVERITY_DOWNSCOPE.get(severity, severity)
 
     magnitude = min(15.0, abs(delta_ldl))
     last_d = pd.to_datetime(win["date"].max()).date()
     n_days = len(win)
 
-    title = f"LDL projeté : ~{projected:.0f} mg/dL"
+    if coverage < 0.5:
+        title = f"LDL projeté (estimé) : ~{projected:.0f} mg/dL"
+    else:
+        title = f"LDL projeté : ~{projected:.0f} mg/dL"
     body = f"Dernier bilan {last_ldl['value']:.0f}, dérive {delta_ldl:+.0f} sur {n_days} j de suivi."
+    if coverage < 0.7:
+        body += " · estimation basée sur SFA partiellement estimés"
 
     return [
         InsightCandidate(
@@ -164,6 +181,7 @@ def detect(df: pd.DataFrame, today: date, sb_client: Any) -> list[InsightCandida
                 "ref_pct_e_sat": REFERENCE_PCT_E_SAT,
                 "ref_pct_e_pufa": REFERENCE_PCT_E_PUFA,
                 "formula": "ΔLDL = 1.28·ΔSFA%E − 0.24·ΔPUFA%E (Mensink-Katan 2003)",
+                "coverage": round(coverage, 3),
             },
             metric_keys=["pct_e_sat", "pct_e_pufa"],
             link_href="/detail/biology",

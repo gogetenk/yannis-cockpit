@@ -13,7 +13,13 @@ from datetime import date
 
 import pandas as pd
 
-from ..scoring import InsightCandidate, iso_week_bucket, recency_from_last_date
+from ..scoring import (
+    SEVERITY_DOWNSCOPE,
+    InsightCandidate,
+    adjusted_measured_ratio,
+    iso_week_bucket,
+    recency_from_last_date,
+)
 
 
 def detect(df: pd.DataFrame, today: date) -> list[InsightCandidate]:
@@ -29,12 +35,21 @@ def detect(df: pd.DataFrame, today: date) -> list[InsightCandidate]:
     if n_high < 10 or median <= 10:
         return []
 
+    coverage = adjusted_measured_ratio(window, "fat_sat_g_source")
+    # Not enough measured signal to justify firing.
+    if coverage < 0.2:
+        return []
+
     severity = "alert" if median > 15 else "watch"
+    if coverage < 0.5:
+        severity = SEVERITY_DOWNSCOPE.get(severity, severity)
     magnitude = min(15.0, max(0.0, (median - 10.0) * 2.0))
     last_d = pd.to_datetime(window["date"].max()).date()
 
     title = f"Saturés : {median:.0f} %E sur 14 j"
     body = f"{n_high}/14 jours au-dessus de 10 %E (cible AHA ≤ 6)."
+    if coverage < 0.7:
+        body += " (estimé en partie depuis macros — précision limitée)"
 
     return [
         InsightCandidate(
@@ -50,6 +65,7 @@ def detect(df: pd.DataFrame, today: date) -> list[InsightCandidate]:
                 "median_pct_e_sat": round(median, 2),
                 "threshold_pct_e": 10.0,
                 "last_date": last_d.isoformat(),
+                "coverage": round(coverage, 3),
             },
             metric_keys=["fat_sat_g", "pct_e_sat"],
             link_href="/detail/biology",
