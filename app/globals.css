@@ -1948,6 +1948,45 @@ header.detail-header .detail-back:focus-visible {
   color: var(--sage-ash);
   font-variant-numeric: tabular-nums;
 }
+.corrections-meta {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 10px;
+}
+.corrections-coverage {
+  font-size: 11px;
+  color: var(--sage-ash);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+}
+.correction-badge {
+  display: inline-flex;
+  align-items: center;
+  margin-left: auto;
+  padding: 2px 6px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 1.2;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  border: 1px solid transparent;
+  font-variant-numeric: normal;
+}
+.correction-badge--rule {
+  background: var(--sage-mist);
+  color: var(--sage-ink);
+}
+.correction-badge--review {
+  background: color-mix(in oklch, var(--deep-sage) 14%, transparent);
+  color: var(--deep-sage);
+  border-color: color-mix(in oklch, var(--deep-sage) 28%, transparent);
+}
+.correction-badge--estimate {
+  background: color-mix(in oklch, var(--ambre-brule) 18%, transparent);
+  color: var(--ambre-brule);
+  border-color: color-mix(in oklch, var(--ambre-brule) 36%, transparent);
+}
 .corrections-list {
   list-style: none;
   padding: 0;

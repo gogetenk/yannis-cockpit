@@ -216,6 +216,21 @@ export type InsightSeverity = "info" | "watch" | "alert";
 
 export type CorrectionSource = "rule" | "llm";
 
+// UI-derived classification of a correction. Computed client-side from
+// `source` + `rule_key` (the DB schema stays 'rule' | 'llm', the ingest
+// pipeline distinguishes review vs estimate via rule_key prefix):
+//   rule         : deterministic plausibility cap was applied
+//   llm_review   : LLM corrected/confirmed an existing Yazio value
+//   llm_estimate : LLM estimated a value from scratch (e.g. photo / macros)
+export type CorrectionKind = "rule" | "llm_review" | "llm_estimate";
+
+export interface CorrectionsCoverage {
+  measured: number;   // rule + llm_review (both anchored to a Yazio value)
+  estimated: number;  // llm_estimate (synthesised by LLM from scratch)
+  total: number;      // measured + estimated, over the 30-day window
+  coverage_pct: number; // measured / (measured + estimated) — 100 if denom 0
+}
+
 export interface Correction {
   id: string;
   date: string;              // ISO YYYY-MM-DD
