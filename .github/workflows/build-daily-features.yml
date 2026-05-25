@@ -33,6 +33,9 @@ jobs:
       - env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          YAZIO_EMAIL: ${{ secrets.YAZIO_EMAIL }}
+          YAZIO_PASSWORD: ${{ secrets.YAZIO_PASSWORD }}
           SINCE: ${{ github.event.inputs.since }}
         run: |
           if [ -n "$SINCE" ]; then

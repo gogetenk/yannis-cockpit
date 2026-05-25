@@ -43,7 +43,120 @@ _ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__
 if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
-from ingest.yazio import sanitize  # noqa: E402
+from ingest.yazio import llm_sanity, sanitize  # noqa: E402
+
+try:
+    from ingest.yazio.fetch_food_items import fetch_food_items as _fetch_food_items
+except Exception:  # pragma: no cover - keeps build_daily_features importable
+    _fetch_food_items = None  # type: ignore[assignment]
+
+
+# Cache of food_items per date so a day with multiple corrections fetches once.
+_FOOD_ITEMS_CACHE: dict[str, list[dict] | None] = {}
+
+
+def _get_food_items_for_date(d_iso: str) -> list[dict] | None:
+    """Best-effort fetch of Yazio food items for a date. Never raises.
+
+    Returns None when:
+      - YAZIO_EMAIL/YAZIO_PASSWORD not set (e.g. local dev)
+      - fetch helper unavailable
+      - the Yazio API call fails (rate-limit / timeout / parse error)
+    """
+    if d_iso in _FOOD_ITEMS_CACHE:
+        return _FOOD_ITEMS_CACHE[d_iso]
+    if _fetch_food_items is None:
+        _FOOD_ITEMS_CACHE[d_iso] = None
+        return None
+    if not (os.environ.get("YAZIO_EMAIL") and os.environ.get("YAZIO_PASSWORD")):
+        _FOOD_ITEMS_CACHE[d_iso] = None
+        return None
+    try:
+        items = _fetch_food_items(d_iso)
+    except Exception as e:
+        print(
+            f"[features] fetch_food_items({d_iso}) failed: {e} -- LLM will run "
+            "with food_items=None",
+            file=sys.stderr,
+        )
+        items = None
+    _FOOD_ITEMS_CACHE[d_iso] = items
+    return items
+
+
+def escalate_corrections_to_llm(
+    corrections: list[sanitize.Correction],
+    daily_kcal_by_date: dict[str, float | None],
+) -> tuple[list[sanitize.Correction], dict[str, dict[str, float | None]]]:
+    """Run the LLM second-opinion on every rule-fired correction.
+
+    Returns the post-LLM correction list AND a dict
+    ``{date_iso: {nutrient_id: refined_value_or_None}}`` so the caller can
+    patch the corresponding daily_features rows in place.
+
+    Safe to call with ANTHROPIC_API_KEY unset or anthropic SDK missing:
+    `llm_sanity.review_correction` short-circuits and returns the input.
+    """
+    if not corrections:
+        return corrections, {}
+
+    overrides: dict[str, dict[str, float | None]] = {}
+    out: list[sanitize.Correction] = []
+    for c in corrections:
+        if c.source != "rule":
+            out.append(c)
+            continue
+        food_items = _get_food_items_for_date(c.date)
+        daily_kcal = daily_kcal_by_date.get(c.date)
+        try:
+            reviewed = llm_sanity.review_correction(c, food_items, daily_kcal)
+        except Exception as e:  # belt-and-braces: never block the pipeline
+            print(
+                f"[features] llm_sanity.review_correction failed for "
+                f"{c.date}/{c.nutrient_id}: {e}",
+                file=sys.stderr,
+            )
+            reviewed = c
+        out.append(reviewed)
+        if (
+            reviewed.source == "llm"
+            and reviewed.sanitized_value != c.sanitized_value
+        ):
+            overrides.setdefault(c.date, {})[c.nutrient_id] = reviewed.sanitized_value
+    return out, overrides
+
+
+def _apply_llm_overrides_to_rows(
+    rows: list[dict],
+    overrides: dict[str, dict[str, float | None]],
+) -> None:
+    """Patch sanitized fields on the daily_features rows in place."""
+    if not overrides:
+        return
+    field_by_nutrient = {
+        sanitize.NUT_ALCOHOL: "alcohol_g",
+        sanitize.NUT_SODIUM: "sodium_mg",
+        sanitize.NUT_FAT_SAT: "fat_sat_g",
+        sanitize.NUT_SUGAR: "sugar_g",
+        sanitize.NUT_FIBER: "fiber_g",
+    }
+    by_date = {r["date"]: r for r in rows}
+    for d_iso, nut_map in overrides.items():
+        row = by_date.get(d_iso)
+        if not row:
+            continue
+        for nutrient_id, refined in nut_map.items():
+            field = field_by_nutrient.get(nutrient_id)
+            if field is None:
+                continue
+            row[field] = refined
+            # Re-derive pct_e_sat if saturated fat changed.
+            if field == "fat_sat_g" and row.get("kcal"):
+                kcal = row.get("kcal")
+                if refined is None or kcal is None or kcal <= 0:
+                    row["pct_e_sat"] = None
+                else:
+                    row["pct_e_sat"] = round((refined * 9.0) / kcal * 100.0, 2)
 
 
 # ---------- nutrient_id detection ---------------------------------------
@@ -547,6 +660,21 @@ def main() -> None:
         cs = r.pop("__corrections", None) or []
         if date.fromisoformat(r["date"]) >= since:
             all_corrections.extend(cs)
+
+    # LLM second-opinion: try to refine each rule-fired correction. Falls
+    # back to no-op if ANTHROPIC_API_KEY / anthropic SDK / Yazio creds are
+    # missing -- the rule decision stays intact in that case.
+    daily_kcal_by_date = {r["date"]: r.get("kcal") for r in raw_rows}
+    all_corrections, llm_overrides = escalate_corrections_to_llm(
+        all_corrections, daily_kcal_by_date
+    )
+    _apply_llm_overrides_to_rows(raw_rows, llm_overrides)
+    if llm_overrides:
+        print(
+            f"[features] LLM refined {sum(len(v) for v in llm_overrides.values())} "
+            f"value(s) across {len(llm_overrides)} day(s)",
+            file=sys.stderr,
+        )
 
     persist_corrections(all_corrections)
 

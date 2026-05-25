@@ -55,15 +55,34 @@ STATIC_RANGES: dict[str, tuple[float, float]] = {
 }
 
 
+def _canonicalize_nid(nutrient_id: str) -> str:
+    """Map a canonical Yazio nutrient_id (`nutrient.alcohol`, `nutrient.fat_saturated`, ...)
+    to a STATIC_RANGES / parent-macro key (`alcohol`, `saturated`, ...).
+    Tolerates bare keys for tests."""
+    nid = (nutrient_id or "").lower()
+    if "fat_saturated" in nid or "saturated" in nid:
+        return "saturated"
+    if "alcohol" in nid:
+        return "alcohol"
+    if "sodium" in nid:
+        return "sodium"
+    if "sugar" in nid:
+        return "sugar"
+    if "fiber" in nid or "fibre" in nid:
+        return "fiber"
+    return nid
+
+
 def _parent_macro_cap(nutrient_id: str, food_items: list[dict] | None) -> float | None:
     """Return a dynamic upper bound from the day's food items, or None."""
     if not food_items:
         return None
+    key = _canonicalize_nid(nutrient_id)
     try:
-        if nutrient_id == "saturated":
+        if key == "saturated":
             total = sum(float(it.get("fat_g") or 0) for it in food_items)
             return total if total > 0 else None
-        if nutrient_id in ("sugar", "fiber"):
+        if key in ("sugar", "fiber"):
             total = sum(float(it.get("carb_g") or 0) for it in food_items)
             return total if total > 0 else None
     except (TypeError, ValueError):
@@ -73,7 +92,7 @@ def _parent_macro_cap(nutrient_id: str, food_items: list[dict] | None) -> float 
 
 def _range_for(nutrient_id: str, food_items: list[dict] | None) -> tuple[float, float] | None:
     """Resolve the physiological [lo, hi] range for a nutrient."""
-    base = STATIC_RANGES.get(nutrient_id)
+    base = STATIC_RANGES.get(_canonicalize_nid(nutrient_id))
     if base is None:
         return None
     lo, hi = base
@@ -98,8 +117,14 @@ def _build_user_payload(
             slim_items.append({
                 "name": it.get("name"),
                 "amount_g": it.get("amount_g"),
-                "alcohol_g": it.get("alcohol_g_per_100g"),
+                "meal": it.get("meal"),
+                "alcohol_per_100g": (
+                    it.get("nutrient_alcohol_per_100g")
+                    if it.get("nutrient_alcohol_per_100g") is not None
+                    else it.get("alcohol_g_per_100g")
+                ),
                 "kcal_per_100g": it.get("kcal_per_100g"),
+                "sodium_per_100g_mg": it.get("sodium_per_100g_mg"),
             })
     return {
         "nutrient": correction.nutrient_id,
@@ -115,11 +140,26 @@ def _build_user_payload(
 
 SYSTEM_PROMPT = (
     "Tu es un arbitre nutritionnel. Une règle déterministe a flaggé une "
-    "valeur Yazio comme implausible. Tu dois soit confirmer la règle, "
-    "soit proposer une valeur affinée basée UNIQUEMENT sur les food_items "
-    "fournis. Tu n'inventes JAMAIS une valeur sans support dans les items. "
-    "Si tu n'as pas assez d'info pour trancher, confirme la règle "
-    "(plausible=false, refined_value=null). Réponds via l'outil JSON."
+    "valeur Yazio comme implausible. Tu dois soit confirmer la règle "
+    "(plausible=false, refined_value=null = drop), soit proposer une valeur "
+    "affinée basée UNIQUEMENT sur les food_items fournis (plausible=false, "
+    "refined_value=<g_ou_mg>), soit dire que la valeur brute est en fait "
+    "correcte (plausible=true).\n\n"
+    "Tu n'inventes JAMAIS une valeur sans support dans les items.\n\n"
+    "ALCOOL — si un item est une boisson alcoolisée avec amount_g et "
+    "nutrient.alcohol/100g aberrant, recalcule la valeur typique :\n"
+    "  - bière (IPA, lager, blonde, stout) : 0.04 à 0.06 g d'éthanol par g\n"
+    "  - vin : 0.10 à 0.14 g/g\n"
+    "  - spiritueux (vodka, whisky, rhum, gin) : 0.30 à 0.40 g/g\n"
+    "  - cidre, kombucha alcoolisé : 0.03 à 0.05 g/g\n"
+    "  Somme sur tous les items pour obtenir l'alcool total du jour.\n\n"
+    "SODIUM — juge la cohérence avec les aliments. Charcuterie, sushi, "
+    "ramen, restau asiatique peuvent légitimement dépasser 5 000 mg/j. "
+    "Au-dessus de 10 000 mg c'est presque toujours une confusion d'unité.\n\n"
+    "MACROS (saturés/sucres/fibres) — ne peuvent jamais dépasser leur "
+    "macro parent (fat_g pour les saturés, carb_g pour sucres/fibres).\n\n"
+    "Si tu n'es pas confiant, confirme la règle (refined_value=null). "
+    "Réponds via l'outil JSON."
 )
 
 TOOL_SCHEMA = {
