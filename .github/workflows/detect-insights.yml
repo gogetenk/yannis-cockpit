@@ -1,0 +1,36 @@
+name: Detect insights
+
+# Runs the insight detectors (Famille 1/4/5). Triggers:
+#   - after a successful "Build cockpit snapshot" run (daily_features is built there)
+#   - every 30 min as a safety net
+#   - manually
+on:
+  workflow_run:
+    workflows: ["Build cockpit snapshot"]
+    types: [completed]
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+    inputs:
+      today:
+        description: "Override today (ISO, defaults to UTC today)"
+        default: ""
+
+jobs:
+  detect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: ingest/insights/requirements.txt
+      - run: pip install -r ingest/insights/requirements.txt
+      - env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          TODAY: ${{ github.event.inputs.today }}
+        run: python -m ingest.insights.detect
