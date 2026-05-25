@@ -721,10 +721,17 @@ def persist_corrections(corrections: list[sanitize.Correction]) -> None:
         print(f"[features] could not load existing corrections: {e}", file=sys.stderr)
         return
 
+    # Also dedupe against the LLM-review shadow: if an active correction with
+    # rule_key=f"llm_review_{c.rule_key}" already exists for (date, nutrient),
+    # the LLM has already weighed in on this exact rule firing -- don't
+    # re-emit the raw rule row (would otherwise stack on every cron tick).
     fresh: list[dict] = []
     for c in corrections:
         key = (c.date, c.nutrient_id, c.rule_key or "")
         if key in existing:
+            continue
+        shadow_key = (c.date, c.nutrient_id, f"llm_review_{c.rule_key or ''}")
+        if shadow_key in existing:
             continue
         fresh.append(c.to_row())
         existing.add(key)
