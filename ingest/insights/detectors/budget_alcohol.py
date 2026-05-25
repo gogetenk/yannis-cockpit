@@ -28,9 +28,20 @@ def detect(df: pd.DataFrame, today: date) -> list[InsightCandidate]:
     if df.empty or "alcohol_g" not in df.columns:
         return []
     window = df.sort_values("date").tail(7).copy()
-    window["alcohol_g"] = window["alcohol_g"].fillna(0)
-    if len(window) < 5:
+    # Exclude non-logged days: their alcohol_g = 0 is "no data", not "no drinks".
+    # Counting them would dilute the 7d sum and hide weekly bursts on weeks
+    # with few logged days.
+    if "is_logged" in window.columns:
+        logged = window[window["is_logged"] == True]  # noqa: E712
+    else:
+        logged = window
+    if len(logged) < 5:
         return []
+    # < 50% coverage on the 7d window = not enough signal to fire.
+    if len(logged) / 7.0 < 0.5:
+        return []
+    window = logged.copy()
+    window["alcohol_g"] = window["alcohol_g"].fillna(0)
 
     total = float(window["alcohol_g"].sum())
     if total <= WEEKLY_THRESHOLD_G:

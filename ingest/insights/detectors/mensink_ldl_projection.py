@@ -117,6 +117,10 @@ def detect(df: pd.DataFrame, today: date, sb_client: Any) -> list[InsightCandida
 
     since = last_ldl["collected_at"]
     win = df[pd.to_datetime(df["date"]).dt.date > since].copy()
+    # Only consider logged days for the SFA mean (else zeros from non-loggés
+    # bias the projection toward "everything is fine, LDL stable").
+    if "is_logged" in win.columns:
+        win = win[win["is_logged"] == True]  # noqa: E712
     win = win.dropna(subset=["pct_e_sat"])
     if len(win) < 14:
         return []

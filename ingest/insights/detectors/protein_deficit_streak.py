@@ -26,8 +26,11 @@ def detect(df: pd.DataFrame, today: date) -> list[InsightCandidate]:
     # Fill weight_kg forward then backward so we always have a reference.
     window["weight_kg"] = window["weight_kg"].ffill().bfill()
     window = window.dropna(subset=["protein_g", "weight_kg"])
-    # Drop days where protein_g == 0: almost certainly "Yazio non loggé" rather
-    # than réel déficit. Évite des faux positifs sur les jours sans saisie.
+    # Drop non-logged days (and zero-protein guards): a non-loggé n'est pas un
+    # déficit. Si is_logged est dispo, on filtre dessus; sinon on garde le
+    # fallback historique sur protein_g > 0.
+    if "is_logged" in window.columns:
+        window = window[window["is_logged"] == True]  # noqa: E712
     window = window[window["protein_g"] > 0]
     if len(window) < MIN_STREAK:
         return []

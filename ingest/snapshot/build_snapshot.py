@@ -562,24 +562,42 @@ def build_signals(yazio: list[dict], measurements: list[dict], activity: list[di
             })
 
     # --- Alcool (cumul 7j vs OMS ≤98 g/sem) ---
-    # Source: daily_features.alcohol_g (sanitized via LLM). Toujours rendu si
-    # data sur 7j (0 g = signal positif).
+    # Source: daily_features.alcohol_g (sanitized via LLM). Only counts logged
+    # days -- a non-loggé jour à 0 g n'est PAS un signal positif, c'est une
+    # absence de donnée qui diluerait artificiellement le cumul.
     try:
-        df_rows = sb_get("daily_features", {"select": "date,alcohol_g", "order": "date.desc", "limit": "14"})
+        df_rows = sb_get(
+            "daily_features",
+            {
+                "select": "date,alcohol_g,is_logged",
+                "order": "date.desc",
+                "limit": "14",
+            },
+        )
     except Exception:
         df_rows = []
     cutoff_7 = today - timedelta(days=7)
-    rows_7d = [r for r in df_rows if date.fromisoformat(r["date"]) >= cutoff_7]
-    if rows_7d:
-        total_7d = sum(float(r.get("alcohol_g") or 0) for r in rows_7d)
+    rows_7d_all = [r for r in df_rows if date.fromisoformat(r["date"]) >= cutoff_7]
+    rows_7d_logged = [r for r in rows_7d_all if r.get("is_logged")]
+    if rows_7d_logged:
+        total_7d = sum(float(r.get("alcohol_g") or 0) for r in rows_7d_logged)
         # 14j de barres (ordre chrono ascendant pour la sparkline)
         df_sorted = sorted(df_rows, key=lambda r: r["date"])
-        daily_values_14d = [float(r.get("alcohol_g") or 0) for r in df_sorted]
+        daily_values_14d = [
+            float(r.get("alcohol_g") or 0) if r.get("is_logged") else 0
+            for r in df_sorted
+        ]
         watch = total_7d > 98
+        coverage_sub = "cible OMS ≤ 98 g/sem"
+        if len(rows_7d_logged) < len(rows_7d_all) and len(rows_7d_all) > 0:
+            coverage_sub = (
+                f"cible OMS ≤ 98 g/sem · {len(rows_7d_logged)}/"
+                f"{len(rows_7d_all)} j loggés"
+            )
         out.append({
             "id": "alcohol",
             "title": "Alcool",
-            "sub": "cible OMS ≤ 98 g/sem",
+            "sub": coverage_sub,
             "value": f"{int(round(total_7d))}",
             "unit": "g / 7 j",
             "status": "watch" if watch else "ok",

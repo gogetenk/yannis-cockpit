@@ -26,8 +26,14 @@ def detect(df: pd.DataFrame, today: date) -> list[InsightCandidate]:
     if df.empty or "pct_e_sat" not in df.columns:
         return []
     window = df.sort_values("date").tail(14).copy()
+    # Only consider logged days -- pct_e_sat derived from kcal=0 makes no sense.
+    if "is_logged" in window.columns:
+        window = window[window["is_logged"] == True]  # noqa: E712
     window = window.dropna(subset=["pct_e_sat"])
     if len(window) < 7:
+        return []
+    # < 50% logged coverage on the 14d window = not enough signal to fire.
+    if len(window) / 14.0 < 0.5:
         return []
 
     n_high = int((window["pct_e_sat"] > 10).sum())
