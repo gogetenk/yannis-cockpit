@@ -598,7 +598,7 @@ def build_signals(yazio: list[dict], measurements: list[dict], activity: list[di
             "id": "alcohol",
             "title": "Alcool",
             "sub": coverage_sub,
-            "value": f"{int(round(total_7d))}",
+            "value": f"{total_7d:.1f}".replace(".", ","),
             "unit": "g / 7 j",
             "status": "watch" if watch else "ok",
             "status_label": "à surveiller" if watch else "conforme",
@@ -682,11 +682,20 @@ def build_ai_brief(payload: dict, full_context: dict | None = None) -> str | Non
         "2. Action ce soir/cette semaine + horizon de vérif explicite.\n"
         "3. Corrélation 2 signaux courts.\n"
         "4. Si TOUT est conforme (hero ET signaux): dis-le franchement en 1 phrase.\n\n"
-        "À ÉVITER:\n"
+        "À ÉVITER (strict):\n"
         "- Contredire le hero status\n"
         "- Recap des chiffres déjà visibles\n"
         "- Vague ('à monitorer', 'demande surveillance')\n"
-        "- Inventer chiffres, dates, doses\n"
+        "- INVENTER un chiffre, une cible, une date, une dose, un horizon qui "
+        "n'existent pas dans facts. Pas de '70 g d'ici dimanche', pas de "
+        "'-300 kcal demain'. Si tu veux suggérer une réduction, dis-le "
+        "qualitativement OU cite la seule cible présente dans facts (ex: "
+        "OMS 98 g/sem pour l'alcool).\n"
+        "- Conseiller d'agir sur du passé non modifiable: l'alcool/calories "
+        "déjà consommés cette semaine ne peuvent plus être annulés. Pour les "
+        "métriques en cumul 7j glissant, l'angle utile est 'le pic du Xj "
+        "sortira naturellement de la fenêtre tel jour' ou 'pas de nouvel "
+        "apport ramène à la cible dans Yj', PAS 'réduis le total à X'.\n"
         "- Em-dash, jargon, cheerleading, guillemets, >35 mots\n\n"
         "Sors UNIQUEMENT la phrase finale."
     )
