@@ -644,7 +644,7 @@ def build_signals(yazio: list[dict], measurements: list[dict], activity: list[di
         out.append({
             "id": "saturated_fat_pct_e",
             "title": "Saturés",
-            "sub": "≤ 10 %E (EFSA) · ≤ 6 %E si optim. LDL",
+            "sub": "opti 6 · max 10 %E",
             "value": f"{median_sat:.1f}".replace(".", ","),
             "unit": "%E médian 14 j",
             "status": status,
