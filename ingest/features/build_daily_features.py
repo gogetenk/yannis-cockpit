@@ -42,18 +42,29 @@ import requests
 # yazio_micronutrient_daily only exposes minerals/vitamins today. We still
 # look up the canonical IDs here so the populator picks them up automatically
 # the day the upstream ingest learns to write them.
-SODIUM_IDS = {"mineral.sodium", "sodium", "minerals.sodium"}
+SODIUM_IDS = {"mineral.sodium", "sodium", "minerals.sodium", "nutrient.sodium"}
 ALCOHOL_IDS = {"alcohol", "nutrient.alcohol", "macro.alcohol"}
 FAT_SAT_IDS = {
     "fat.saturated",
     "saturated_fat",
     "nutrient.fat_saturated",
+    "nutrient.saturated",
     "macro.fat_saturated",
 }
-FAT_PUFA_IDS = {"fat.polyunsaturated", "nutrient.fat_polyunsaturated", "fat.pufa"}
-FAT_MUFA_IDS = {"fat.monounsaturated", "nutrient.fat_monounsaturated", "fat.mufa"}
+FAT_PUFA_IDS = {
+    "fat.polyunsaturated",
+    "nutrient.fat_polyunsaturated",
+    "nutrient.polyunsaturated",
+    "fat.pufa",
+}
+FAT_MUFA_IDS = {
+    "fat.monounsaturated",
+    "nutrient.fat_monounsaturated",
+    "nutrient.monounsaturated",
+    "fat.mufa",
+}
 SUGAR_IDS = {"sugar", "nutrient.sugar", "carb.sugar"}
-FIBER_IDS = {"fiber", "nutrient.fiber", "carb.fiber"}
+FIBER_IDS = {"fiber", "nutrient.fiber", "nutrient.dietaryfiber", "carb.fiber"}
 
 EPS = 1e-6
 
