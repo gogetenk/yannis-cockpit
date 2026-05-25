@@ -131,6 +131,15 @@ def fetch_food_items(
             except (TypeError, ValueError):
                 return None
 
+        # Cholesterol is stored in g/100g in some Yazio regions; convert to mg.
+        chol_per_100g = nutr.get("nutrient.cholesterol")
+        chol_per_100g_mg: float | None = None
+        if chol_per_100g is not None:
+            try:
+                chol_per_100g_mg = float(chol_per_100g) * 1000.0
+            except (TypeError, ValueError):
+                chol_per_100g_mg = None
+
         out.append({
             "name": name,
             "amount_g": float(amount or 0),
@@ -139,12 +148,87 @@ def fetch_food_items(
             "kcal_per_100g": _num(nutr.get("energy.energy")),
             "sodium_per_100g_mg": sodium_per_100g_mg,
             "fat_g_per_100g": _num(nutr.get("nutrient.fat")),
+            "fat_sat_per_100g": _num(nutr.get("nutrient.saturated")),
             "carb_g_per_100g": _num(nutr.get("nutrient.carb")),
+            "sugar_per_100g": _num(nutr.get("nutrient.sugar")),
+            "fiber_per_100g": _num(
+                nutr.get("nutrient.fiber") or nutr.get("nutrient.dietaryfiber")
+            ),
             "protein_g_per_100g": _num(nutr.get("nutrient.protein")),
+            "cholesterol_per_100g_mg": chol_per_100g_mg,
             "product_id": pid,
         })
 
     _log(f"  (fetch_food_items: {target} -> {len(out)} items)")
+    return out
+
+
+def parse_food_items_from_days(
+    days: dict[str, Any],
+    products: dict[str, Any],
+) -> dict[str, list[dict[str, Any]]]:
+    """Parse a multi-date `days.json` payload into food items grouped by date.
+
+    Use this when you already have the bulk `days` + `products` JSON from a
+    single CLI window invocation (cheaper than calling :func:`fetch_food_items`
+    once per date).
+    """
+    out: dict[str, list[dict[str, Any]]] = {}
+    for iso_date, day in (days or {}).items():
+        consumed = (day or {}).get("consumed") or {}
+        items = consumed.get("products") or []
+        rows: list[dict[str, Any]] = []
+        for it in items:
+            pid = it.get("product_id")
+            amount = it.get("amount") or 0
+            meal = it.get("daytime", "?")
+            p = (products or {}).get(pid) or {}
+            name = p.get("name", f"<unknown {pid}>")
+            nutr = p.get("nutrients", {}) or {}
+
+            sodium_per_100g = nutr.get("mineral.sodium") or nutr.get("nutrient.sodium")
+            sodium_per_100g_mg: float | None = None
+            if sodium_per_100g is not None:
+                try:
+                    sodium_per_100g_mg = float(sodium_per_100g) * 1000.0
+                except (TypeError, ValueError):
+                    sodium_per_100g_mg = None
+
+            chol_per_100g = nutr.get("nutrient.cholesterol")
+            chol_per_100g_mg: float | None = None
+            if chol_per_100g is not None:
+                try:
+                    chol_per_100g_mg = float(chol_per_100g) * 1000.0
+                except (TypeError, ValueError):
+                    chol_per_100g_mg = None
+
+            def _num(x: Any) -> float | None:
+                if x is None:
+                    return None
+                try:
+                    return float(x)
+                except (TypeError, ValueError):
+                    return None
+
+            rows.append({
+                "name": name,
+                "amount_g": float(amount or 0),
+                "meal": meal,
+                "nutrient_alcohol_per_100g": _num(nutr.get("nutrient.alcohol")),
+                "kcal_per_100g": _num(nutr.get("energy.energy")),
+                "sodium_per_100g_mg": sodium_per_100g_mg,
+                "fat_g_per_100g": _num(nutr.get("nutrient.fat")),
+                "fat_sat_per_100g": _num(nutr.get("nutrient.saturated")),
+                "carb_g_per_100g": _num(nutr.get("nutrient.carb")),
+                "sugar_per_100g": _num(nutr.get("nutrient.sugar")),
+                "fiber_per_100g": _num(
+                    nutr.get("nutrient.fiber") or nutr.get("nutrient.dietaryfiber")
+                ),
+                "protein_g_per_100g": _num(nutr.get("nutrient.protein")),
+                "cholesterol_per_100g_mg": chol_per_100g_mg,
+                "product_id": pid,
+            })
+        out[iso_date] = rows
     return out
 
 

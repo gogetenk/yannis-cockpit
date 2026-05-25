@@ -37,9 +37,19 @@ from pathlib import Path
 
 import requests
 
+# Make this file runnable both as `python ingest/yazio/ingest_yazio.py` and as
+# part of the ingest package (the food-item helper lives next to it).
+_HERE = os.path.dirname(os.path.abspath(__file__))
+_ROOT = os.path.dirname(os.path.dirname(_HERE))
+if _ROOT not in sys.path:
+    sys.path.insert(0, _ROOT)
+
+from ingest.yazio.fetch_food_items import parse_food_items_from_days  # noqa: E402
+
 
 REQUIRED_ENV = ("YAZIO_EMAIL", "YAZIO_PASSWORD", "SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY")
 MEAL_KEYS = ("breakfast", "lunch", "dinner", "snack")
+ALLOWED_MEAL_SLOTS = set(MEAL_KEYS)
 
 # Yazio namespaces nutrient keys in API responses (e.g. "energy.energy",
 # "nutrient.protein"). Our column-friendly names map onto these.
@@ -136,6 +146,16 @@ def run_exporter(out_dir: Path, days_window: int) -> None:
         "-t", str(token), "-f", start, "-e", end,
         "--nutrients", ",".join(EXTRA_NUTRIENT_IDS),
         "-o", str(extras_json), "--format", "json",
+    ])
+    # Resolve consumed product names + nutrient profiles for the same window;
+    # feeds yazio_food_item_daily so the LLM enrichment layer can ground its
+    # estimates on actual ingredient names instead of meal-level totals.
+    products_json = out_dir / "products.json"
+    run([
+        "yazio-exporter", "products",
+        "-t", str(token),
+        "--from-file", str(days_json),
+        "-o", str(products_json), "--format", "json",
     ])
 
 
@@ -327,6 +347,54 @@ def parse_extra_macros(out_dir: Path) -> list[dict]:
     return rows
 
 
+def parse_food_items(out_dir: Path) -> list[dict]:
+    """Project days.json + products.json into yazio_food_item_daily rows.
+
+    Each row carries the per-100g nutrient profile of one consumed item.
+    `item_index` reflects the position of the item inside its meal slot, in
+    the order Yazio returned it -- this guarantees idempotency on re-ingest.
+    Items in non-standard meal slots (very rare in Yazio: only the 4 canonical
+    slots are exposed) are skipped to keep the CHECK constraint happy.
+    """
+    days_path = out_dir / "days.json"
+    products_path = out_dir / "products.json"
+    if not days_path.exists() or not products_path.exists():
+        return []
+    days = json.loads(days_path.read_text())
+    products = json.loads(products_path.read_text()).get("products", {})
+    by_date = parse_food_items_from_days(days, products)
+
+    rows: list[dict] = []
+    for iso_date, items in by_date.items():
+        # Index items per meal slot so we can produce a stable item_index.
+        per_slot: dict[str, int] = {}
+        for it in items:
+            slot = it.get("meal")
+            if slot not in ALLOWED_MEAL_SLOTS:
+                continue
+            idx = per_slot.get(slot, 0)
+            per_slot[slot] = idx + 1
+            rows.append({
+                "date": iso_date,
+                "meal_slot": slot,
+                "item_index": idx,
+                "item_name": it.get("name") or "<unknown>",
+                "amount_g": it.get("amount_g"),
+                "product_id": it.get("product_id"),
+                "kcal_per_100g": it.get("kcal_per_100g"),
+                "protein_per_100g": it.get("protein_g_per_100g"),
+                "carb_per_100g": it.get("carb_g_per_100g"),
+                "fat_per_100g": it.get("fat_g_per_100g"),
+                "fat_sat_per_100g": it.get("fat_sat_per_100g"),
+                "sodium_per_100g_mg": it.get("sodium_per_100g_mg"),
+                "sugar_per_100g": it.get("sugar_per_100g"),
+                "fiber_per_100g": it.get("fiber_per_100g"),
+                "alcohol_per_100g": it.get("nutrient_alcohol_per_100g"),
+                "cholesterol_per_100g_mg": it.get("cholesterol_per_100g_mg"),
+            })
+    return rows
+
+
 def merge_micro_rows(*sources: list[dict]) -> list[dict]:
     """Merge multiple lists of micronutrient rows, last-write-wins per (date, nutrient_id)."""
     merged: dict[tuple[str, str], dict] = {}
@@ -334,6 +402,40 @@ def merge_micro_rows(*sources: list[dict]) -> list[dict]:
         for row in src:
             merged[(row["date"], row["nutrient_id"])] = row
     return list(merged.values())
+
+
+def replace_food_items_for_dates(rows: list[dict]) -> None:
+    """Delete-then-insert for each distinct date in `rows`.
+
+    Avoids stale rows when a Yazio item is removed between ingests, without
+    needing a costly full table refresh. Empty input is a no-op (we do not
+    delete dates that may have legitimate older rows -- the cron window is
+    rolling, so untouched dates outside it stay intact).
+    """
+    if not rows:
+        print("  yazio_food_item_daily: nothing to write", file=sys.stderr)
+        return
+    dates = sorted({r["date"] for r in rows})
+    key = env("SUPABASE_SERVICE_ROLE_KEY")
+    base = f"{env('SUPABASE_URL')}/rest/v1/yazio_food_item_daily"
+    headers = {
+        "apikey": key,
+        "Authorization": f"Bearer {key}",
+        "Content-Type": "application/json",
+        "Prefer": "return=minimal",
+    }
+    # Bulk delete in one request using `in.(...)`.
+    in_filter = ",".join(dates)
+    r = requests.delete(f"{base}?date=in.({in_filter})", headers=headers, timeout=60)
+    if not r.ok:
+        sys.exit(f"delete yazio_food_item_daily failed {r.status_code}: {r.text[:500]}")
+    r = requests.post(base, headers=headers, data=json.dumps(rows), timeout=60)
+    if not r.ok:
+        sys.exit(f"insert yazio_food_item_daily failed {r.status_code}: {r.text[:500]}")
+    print(
+        f"  yazio_food_item_daily: replaced {len(rows)} items across {len(dates)} date(s)",
+        file=sys.stderr,
+    )
 
 
 def main() -> None:
@@ -351,9 +453,15 @@ def main() -> None:
         all_micro_rows = normalize_units(
             merge_micro_rows(micro_rows, extras_rows, extra_macro_rows)
         )
+        food_item_rows = parse_food_items(out_dir)
         upsert(day_rows, "yazio_day", "date")
         upsert(meal_rows, "yazio_meal", "date,meal")
         upsert(all_micro_rows, "yazio_micronutrient_daily", "date,nutrient_id")
+        # For food items, the natural key is (date, meal_slot, item_index).
+        # An upsert handles updates, but items removed in Yazio after a prior
+        # ingest would still linger as ghost rows -- delete each date's slate
+        # first, then re-insert. Scope: only dates we actually fetched.
+        replace_food_items_for_dates(food_item_rows)
     print("done", file=sys.stderr)
 
 

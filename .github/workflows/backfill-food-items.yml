@@ -1,0 +1,54 @@
+name: Backfill yazio_food_item_daily
+
+# One-shot backfill of consumed Yazio food items per day. Use this once after
+# the 0007 migration to load the full user history (2022+). The daily Yazio
+# ingest keeps the table fresh after that.
+
+on:
+  workflow_dispatch:
+    inputs:
+      since:
+        description: "ISO date floor (default 2022-01-01)."
+        default: "2022-01-01"
+      until:
+        description: "ISO date ceiling (default = today)."
+        default: ""
+      skip_existing:
+        description: "Skip dates already in yazio_food_item_daily (true/false). Default true."
+        default: "true"
+      dry_run:
+        description: "Fetch + log without writing (true/false). Default false."
+        default: "false"
+      throttle:
+        description: "Seconds between dates (Yazio rate-limit guard)."
+        default: "0.3"
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: ingest/yazio/requirements.txt
+      - run: pip install -r ingest/yazio/requirements.txt
+      - env:
+          YAZIO_EMAIL: ${{ secrets.YAZIO_EMAIL }}
+          YAZIO_PASSWORD: ${{ secrets.YAZIO_PASSWORD }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SINCE: ${{ github.event.inputs.since }}
+          UNTIL: ${{ github.event.inputs.until }}
+          SKIP_EXISTING: ${{ github.event.inputs.skip_existing }}
+          DRY_RUN: ${{ github.event.inputs.dry_run }}
+          THROTTLE: ${{ github.event.inputs.throttle }}
+        run: |
+          args=(--since "${SINCE:-2022-01-01}")
+          if [ -n "$UNTIL" ]; then args+=(--until "$UNTIL"); fi
+          if [ "$SKIP_EXISTING" = "false" ]; then args+=(--no-skip-existing); fi
+          if [ "$DRY_RUN" = "true" ]; then args+=(--dry-run); fi
+          if [ -n "$THROTTLE" ]; then args+=(--throttle "$THROTTLE"); fi
+          python ingest/yazio/backfill_food_items.py "${args[@]}"
