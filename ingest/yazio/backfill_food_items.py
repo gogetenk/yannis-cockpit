@@ -87,6 +87,30 @@ def existing_dates() -> set[str]:
     return {str(r.get("date") or "")[:10] for r in rows if r.get("date")}
 
 
+def logged_dates_from_yazio_day() -> set[str]:
+    """Return dates where the user actually logged something (yazio_day.kcal > 0).
+
+    Used as a positive filter so the backfill only walks dates where Yazio
+    actually has consumed items, avoiding ~2s of CLI per empty date over the
+    long pre-Yazio history.
+    """
+    rows = sb_get("yazio_day", {"select": "date,kcal"})
+    out: set[str] = set()
+    for r in rows:
+        d = str(r.get("date") or "")[:10]
+        if not d:
+            continue
+        kcal = r.get("kcal")
+        if kcal is None:
+            continue
+        try:
+            if float(kcal) > 0:
+                out.add(d)
+        except (TypeError, ValueError):
+            continue
+    return out
+
+
 def run_cli(*args: str) -> None:
     subprocess.run(
         ["yazio-exporter", *args],
@@ -234,6 +258,18 @@ def main() -> None:
             log(f"[backfill_food] {len(skip)} date(s) already on file -- will skip")
         except Exception as e:
             log(f"[backfill_food] could not read existing dates: {e}")
+    # Use yazio_day as a positive filter: only walk dates where the user
+    # actually logged something (kcal > 0). This skips multi-year empty
+    # stretches without paying the per-date Yazio CLI cost.
+    only_logged: set[str] | None = None
+    try:
+        only_logged = logged_dates_from_yazio_day()
+        log(
+            f"[backfill_food] {len(only_logged)} logged date(s) in yazio_day "
+            "-- will restrict the walk to those"
+        )
+    except Exception as e:
+        log(f"[backfill_food] could not read yazio_day: {e}; walking every date")
 
     n_dates = (until - since).days + 1
     log(f"[backfill_food] {n_dates} date(s) to walk")
@@ -255,6 +291,11 @@ def main() -> None:
             d_iso = d.isoformat()
             if d_iso in skip:
                 n_skipped += 1
+                d += timedelta(days=1)
+                continue
+            if only_logged is not None and d_iso not in only_logged:
+                # No log per yazio_day -- nothing to fetch from Yazio either.
+                n_empty += 1
                 d += timedelta(days=1)
                 continue
             rows = fetch_one_date(token, tmp, d)
