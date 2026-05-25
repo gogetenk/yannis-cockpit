@@ -42,7 +42,6 @@ export function SignalsSection({ signals, action }: Props) {
     <section className="signals" aria-labelledby="signals-heading">
       <header className="signals-head">
         <h3 id="signals-heading">Signaux</h3>
-        <span className="signals-window">fenêtre 28 j</span>
       </header>
       <ol className="signals-list">
         {signals.map(s => (
