@@ -196,6 +196,39 @@ def main() -> None:
             continue
         df_by_date[d_iso] = r
 
+    # Load yazio_food_item_daily rows in window (richer than yazio_meal).
+    food_rows = sb_get(
+        "yazio_food_item_daily",
+        {
+            "select": "date,meal_slot,item_index,item_name,amount_g",
+            "date": f"gte.{since.isoformat()}",
+        },
+    )
+    food_items_by_date: dict[str, list[dict]] = defaultdict(list)
+    for r in food_rows:
+        d_iso = str(r.get("date") or "")[:10]
+        if not d_iso:
+            continue
+        try:
+            d = date.fromisoformat(d_iso)
+        except ValueError:
+            continue
+        if d > until:
+            continue
+        food_items_by_date[d_iso].append(
+            {
+                "meal": r.get("meal_slot"),
+                "meal_slot": r.get("meal_slot"),
+                "item_index": r.get("item_index"),
+                "name": r.get("item_name"),
+                "amount_g": r.get("amount_g"),
+            }
+        )
+    for d_iso in food_items_by_date:
+        food_items_by_date[d_iso].sort(
+            key=lambda x: (x.get("meal_slot") or "", x.get("item_index") or 0)
+        )
+
     # Load yazio_meal rows in window.
     meals_rows = sb_get(
         "yazio_meal",
@@ -229,7 +262,8 @@ def main() -> None:
     candidates = sorted(df_by_date.keys())
     print(
         f"[backrun] {len(candidates)} daily_features rows in window, "
-        f"{sum(1 for d in candidates if meals_by_date.get(d))} have meal logs",
+        f"{sum(1 for d in candidates if meals_by_date.get(d))} have meal logs, "
+        f"{sum(1 for d in candidates if food_items_by_date.get(d))} have food items",
         file=sys.stderr,
     )
 
@@ -243,6 +277,7 @@ def main() -> None:
     for i, d_iso in enumerate(candidates):
         row = df_by_date[d_iso]
         meals = meals_by_date.get(d_iso) or []
+        food_items = food_items_by_date.get(d_iso) or []
 
         existing_micros = {f: row.get(f) for f in MICRO_FIELDS}
         existing_sources = {f: row.get(f"{f}_source") for f in MICRO_FIELDS}
@@ -254,7 +289,7 @@ def main() -> None:
         if not missing:
             n_skipped_existing += 1
             continue
-        if not meals:
+        if not meals and not food_items:
             n_skipped_nomeals += 1
             continue
 
@@ -276,7 +311,8 @@ def main() -> None:
 
         try:
             estimates = enrich_estimation.estimate_day_micros(
-                d_iso, meals, existing_for_llm, daily_macros
+                d_iso, meals, existing_for_llm, daily_macros,
+                food_items=food_items,
             )
         except Exception as e:
             print(f"[backrun] LLM call failed for {d_iso}: {e}", file=sys.stderr)

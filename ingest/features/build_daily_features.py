@@ -337,6 +337,41 @@ def load_yazio_meals() -> dict[date, list[dict]]:
     return out
 
 
+def load_yazio_food_items() -> dict[date, list[dict]]:
+    """Per-date list of consumed food items (rich named ingredients).
+
+    Sourced from `yazio_food_item_daily` (Chantier 1). Empty list for a date
+    means "no items persisted yet" -- the enrichment layer falls back to
+    yazio_meal-level totals in that case.
+    """
+    rows = sb_get(
+        "yazio_food_item_daily",
+        {"select": "date,meal_slot,item_index,item_name,amount_g"},
+    )
+    out: dict[date, list[dict]] = defaultdict(list)
+    for r in rows:
+        try:
+            d = date.fromisoformat(r["date"])
+        except (TypeError, ValueError):
+            continue
+        out[d].append(
+            {
+                "meal": r.get("meal_slot"),
+                "meal_slot": r.get("meal_slot"),
+                "item_index": r.get("item_index"),
+                "name": r.get("item_name"),
+                "amount_g": r.get("amount_g"),
+            }
+        )
+    # Stable order: by meal slot then item_index so the LLM sees the same
+    # narrative each time.
+    for d in out:
+        out[d].sort(
+            key=lambda x: (x.get("meal_slot") or "", x.get("item_index") or 0)
+        )
+    return out
+
+
 def load_yazio_micros() -> dict[date, dict[str, float]]:
     rows = sb_get("yazio_micronutrient_daily", {"select": "date,nutrient_id,value"})
     out: dict[date, dict[str, float]] = defaultdict(dict)
@@ -479,6 +514,11 @@ def build_row_raw(
     protein_g = _to_num(yz.get("protein_g")) if yz else None
     carb_g = _to_num(yz.get("carb_g")) if yz else None
     fat_g = _to_num(yz.get("fat_g")) if yz else None
+    # Logged-day flag: positive evidence the user recorded food on this date.
+    # An implicit-zero day (Yazio API returns nothing, or every meal slot is 0)
+    # is treated as "non loggé" — detectors / baselines must NOT count it as
+    # "user ate 0 kcal" because that biases means downward.
+    is_logged = bool(kcal is not None and kcal > 0)
 
     sodium_mg = _pick(micros, SODIUM_IDS)
     alcohol_g = _pick(micros, ALCOHOL_IDS)
@@ -578,6 +618,7 @@ def build_row_raw(
     return {
         "__corrections": _corrections_for_row,  # stripped before upsert
         "date": d.isoformat(),
+        "is_logged": is_logged,
         "kcal": kcal,
         "protein_g": protein_g,
         "carb_g": carb_g,
@@ -626,6 +667,7 @@ def enrich_rows_with_llm_estimates(
     *,
     force: bool = False,
     existing_sources_by_date: dict[str, dict[str, str | None]] | None = None,
+    food_items_by_date: dict[date, list[dict]] | None = None,
 ) -> tuple[int, int]:
     """For each in-scope row missing any of the 5 micros, ask Haiku to fill them.
 
@@ -653,7 +695,10 @@ def enrich_rows_with_llm_estimates(
         if not missing:
             continue
         meals = meals_by_date.get(d) or []
-        if not meals:
+        food_items = (food_items_by_date or {}).get(d) or []
+        # The LLM needs SOME anchor: either meal totals (with names) or the
+        # rich named-ingredient list. If both are empty, we cannot estimate.
+        if not meals and not food_items:
             continue
         # Idempotency: skip if every missing field already has a recorded
         # source upstream (meaning we ran the estimator before and it failed
@@ -674,7 +719,7 @@ def enrich_rows_with_llm_estimates(
         }
         try:
             estimates = enrich_estimation.estimate_day_micros(
-                d_iso, meals, existing_micros, daily_macros
+                d_iso, meals, existing_micros, daily_macros, food_items=food_items
             )
         except Exception as e:
             print(
@@ -823,6 +868,7 @@ def main() -> None:
 
     yz_by_d = load_yazio_day()
     meals_by_d = load_yazio_meals()
+    food_items_by_d = load_yazio_food_items()
     micros_by_d = load_yazio_micros()
     wm_by_d = load_withings_measurements()
     wa_by_d = load_withings_activity()
@@ -928,6 +974,7 @@ def main() -> None:
         since,
         force=False,
         existing_sources_by_date=existing_sources,
+        food_items_by_date=food_items_by_d,
     )
     if n_dates_llm:
         print(

@@ -166,13 +166,50 @@ def _clamp(
     return v
 
 
+def _summarize_food_items(food_items: list[dict] | None) -> list[dict] | None:
+    """Group raw food items by meal slot for the LLM payload.
+
+    Each entry: {slot, items: [{name, amount_g}]}. Capped at 60 named items
+    total to keep the prompt cheap. The estimator uses these names verbatim
+    to anchor its category-based heuristics (e.g. "sushi" -> sodium 1500+ mg).
+    """
+    if not food_items:
+        return None
+    buckets: dict[str, list[dict]] = {}
+    total = 0
+    for it in food_items:
+        if total >= 60:
+            break
+        slot = it.get("meal") or it.get("meal_slot") or "?"
+        name = it.get("name") or it.get("item_name")
+        if not name:
+            continue
+        amount = it.get("amount_g")
+        buckets.setdefault(slot, []).append(
+            {"name": name, "amount_g": amount}
+        )
+        total += 1
+    if not buckets:
+        return None
+    return [
+        {"slot": slot, "items": items}
+        for slot, items in buckets.items()
+    ]
+
+
 def _build_payload(
     day_iso: str,
     meals: list[dict],
     existing_micros: dict[str, float | None],
     daily_macros: dict[str, float | None],
+    food_items: list[dict] | None = None,
 ) -> dict[str, Any]:
-    """Slim payload for the LLM. Caps meal list at 40 entries."""
+    """Slim payload for the LLM. Caps meal list at 40 entries.
+
+    When `food_items` is provided, the named-ingredient summary is included
+    alongside the meal totals so the model can ground sodium / SFA on
+    actual products (e.g. "Sushi mix 250g" rather than "lunch 720 kcal").
+    """
     slim_meals: list[dict] = []
     for m in (meals or [])[:40]:
         slim_meals.append(
@@ -184,7 +221,7 @@ def _build_payload(
                 "fat_g": m.get("fat_g"),
             }
         )
-    return {
+    payload: dict[str, Any] = {
         "date": day_iso,
         "daily_totals": {
             "kcal": daily_macros.get("kcal"),
@@ -198,9 +235,16 @@ def _build_payload(
         "meals": slim_meals,
         "instructions": (
             "Estime UNIQUEMENT les nutriments ou existing_micros_from_yazio "
-            "vaut null. Pour les autres, retourne value=null reason='already from yazio'."
+            "vaut null. Pour les autres, retourne value=null reason='already from yazio'. "
+            "Si food_items est fourni, base PRIORITAIREMENT tes estimations sur "
+            "les noms d'ingredients (et leur quantite en grammes) plutot que sur "
+            "les totaux meal-level -- ce sont les vraies entrees du journal."
         ),
     }
+    fi_summary = _summarize_food_items(food_items)
+    if fi_summary:
+        payload["food_items"] = fi_summary
+    return payload
 
 
 def _call_llm(payload: dict[str, Any]) -> dict[str, Any] | None:
@@ -250,6 +294,7 @@ def estimate_day_micros(
     meals: list[dict],
     existing_micros: dict[str, float | None],
     daily_macros: dict[str, float | None] | None = None,
+    food_items: list[dict] | None = None,
 ) -> dict[str, dict[str, Any]]:
     """Estimate missing micronutrients for one day.
 
@@ -268,7 +313,7 @@ def estimate_day_micros(
       Only contains entries for nutrients that were actually estimated
       (i.e. existing_micros[k] is None AND the LLM produced a non-null value).
     """
-    if not meals:
+    if not meals and not food_items:
         return {}
     # Which nutrients do we actually need?
     needed = [k for k in NUTRIENT_KEYS if existing_micros.get(k) is None]
@@ -291,7 +336,9 @@ def estimate_day_micros(
                     continue
             daily_macros[field] = total if seen else None
 
-    payload = _build_payload(day_iso, meals, existing_micros, daily_macros)
+    payload = _build_payload(
+        day_iso, meals, existing_micros, daily_macros, food_items=food_items
+    )
     verdict = _call_llm(payload)
     if not verdict:
         return {}
