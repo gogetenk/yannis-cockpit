@@ -561,6 +561,32 @@ def build_signals(yazio: list[dict], measurements: list[dict], activity: list[di
                 "spark": _bar_spark([int(round(v)) for v in s7[-14:]], "ambre" if watch else "sage"),
             })
 
+    # --- Alcool (cumul 7j vs OMS ≤98 g/sem) ---
+    # Source: daily_features.alcohol_g (sanitized via LLM). Toujours rendu si
+    # data sur 7j (0 g = signal positif).
+    try:
+        df_rows = sb_get("daily_features", {"select": "date,alcohol_g", "order": "date.desc", "limit": "14"})
+    except Exception:
+        df_rows = []
+    cutoff_7 = today - timedelta(days=7)
+    rows_7d = [r for r in df_rows if date.fromisoformat(r["date"]) >= cutoff_7]
+    if rows_7d:
+        total_7d = sum(float(r.get("alcohol_g") or 0) for r in rows_7d)
+        # 14j de barres (ordre chrono ascendant pour la sparkline)
+        df_sorted = sorted(df_rows, key=lambda r: r["date"])
+        daily_values_14d = [float(r.get("alcohol_g") or 0) for r in df_sorted]
+        watch = total_7d > 98
+        out.append({
+            "id": "alcohol",
+            "title": "Alcool",
+            "sub": "cible OMS ≤ 98 g/sem",
+            "value": f"{int(round(total_7d))}",
+            "unit": "g / 7 j",
+            "status": "watch" if watch else "ok",
+            "status_label": "à surveiller" if watch else "conforme",
+            "spark": _bar_spark(daily_values_14d, "ambre" if watch else "sage"),
+        })
+
     return out
 
 
