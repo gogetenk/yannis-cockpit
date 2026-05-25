@@ -605,6 +605,53 @@ def build_signals(yazio: list[dict], measurements: list[dict], activity: list[di
             "spark": _bar_spark(daily_values_14d, "ambre" if watch else "sage"),
         })
 
+    # --- Saturés %E (médiane 14j vs AHA ≤ 6%E pour profil cardio) ---
+    # Always-visible signal (not an insight). Mensink-Katan: 5%E SFA -> PUFA
+    # baisse LDL ~10 mg/dL. Pertinent en continu sans alert fatigue.
+    try:
+        sat_rows = sb_get(
+            "daily_features",
+            {
+                "select": "date,pct_e_sat,fat_sat_g_source,is_logged",
+                "order": "date.desc",
+                "limit": "14",
+            },
+        )
+    except Exception:
+        sat_rows = []
+    sat_logged = [
+        r for r in sat_rows
+        if r.get("is_logged") and r.get("pct_e_sat") is not None
+    ]
+    if len(sat_logged) >= 7:
+        sat_values = sorted(float(r["pct_e_sat"]) for r in sat_logged)
+        n = len(sat_values)
+        median_sat = (
+            sat_values[n // 2] if n % 2 else (sat_values[n // 2 - 1] + sat_values[n // 2]) / 2
+        )
+        n_high = sum(1 for v in sat_values if v > 10)
+        if median_sat <= 6:
+            status = "ok"
+            label = "conforme"
+        elif median_sat <= 10:
+            status = "ok"
+            label = "au-dessus de la cible AHA"
+        else:
+            status = "watch"
+            label = f"{n_high}/14 j > 10 %E"
+        sat_sorted_chrono = sorted(sat_logged, key=lambda r: r["date"])
+        spark_vals = [float(r["pct_e_sat"]) for r in sat_sorted_chrono]
+        out.append({
+            "id": "saturated_fat_pct_e",
+            "title": "Saturés",
+            "sub": "cible AHA ≤ 6 %E (profil cardio)",
+            "value": f"{median_sat:.1f}".replace(".", ","),
+            "unit": "%E médian 14 j",
+            "status": status,
+            "status_label": label,
+            "spark": _bar_spark(spark_vals, "ambre" if status == "watch" else "sage"),
+        })
+
     return out
 
 
@@ -672,7 +719,13 @@ def build_ai_brief(payload: dict, full_context: dict | None = None) -> str | Non
         "et son écart vs la courbe idéale STEP-1 est la métrique primaire du "
         "dashboard, tu dois la traiter en premier si elle dévie.\n\n"
         "MISSION: focus LOOPS COURTS (24h-7j) — poids, sommeil, HR repos, "
-        "stress, déficit calorique, protéines, activité. Vérifiables en 1-7j.\n\n"
+        "stress, déficit calorique, protéines, activité, **saturés %E**, "
+        "**sodium**, **alcool**. Vérifiables en 1-7j.\n\n"
+        "Sur les saturés (signal 'Saturés' en %E): si > cible AHA 6, un quick "
+        "win classique est le remplacement SFA→PUFA (Mensink-Katan: -10 mg/dL "
+        "LDL pour 5%E de switch). Suggérer des swaps concrets au prochain repas "
+        "(beurre→huile olive, fromage/charcut→poisson/volaille maigre, plat "
+        "préparé→maison) est de l'action loop court parfaitement valide.\n\n"
         "INTERDIT: actions horizon long (bilan sanguin, supplément 6 mois, "
         "statine, méthylfolate). La card 'Bilan biologique' gère ça.\n\n"
         "Hiérarchie des bons outputs:\n"
