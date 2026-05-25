@@ -84,6 +84,39 @@ def _get_food_items_for_date(d_iso: str) -> list[dict] | None:
     return items
 
 
+def _load_active_llm_reviews() -> dict[tuple[str, str], float | None]:
+    """Map (date_iso, nutrient_id) -> active LLM-reviewed sanitized_value.
+
+    Used so build_daily_features stays consistent with the canonical LLM
+    decision already persisted in `yazio_correction`. Re-calling the LLM on
+    every cron tick would yield slightly different numbers (Haiku is not
+    deterministic) and overwrite the row stored value.
+    """
+    try:
+        rows = sb_get(
+            "yazio_correction",
+            {
+                "select": "date,nutrient_id,rule_key,sanitized_value",
+                "source": "eq.llm",
+                "reverted_at": "is.null",
+                "rule_key": "like.llm_review_*",
+            },
+        )
+    except Exception as e:
+        print(f"[features] could not load active LLM reviews: {e}", file=sys.stderr)
+        return {}
+    out: dict[tuple[str, str], float | None] = {}
+    for r in rows:
+        d = str(r.get("date") or "")[:10]
+        nid = r.get("nutrient_id") or ""
+        sv = r.get("sanitized_value")
+        try:
+            out[(d, nid)] = float(sv) if sv is not None else None
+        except (TypeError, ValueError):
+            out[(d, nid)] = None
+    return out
+
+
 def escalate_corrections_to_llm(
     corrections: list[sanitize.Correction],
     daily_kcal_by_date: dict[str, float | None],
@@ -96,15 +129,28 @@ def escalate_corrections_to_llm(
 
     Safe to call with ANTHROPIC_API_KEY unset or anthropic SDK missing:
     `llm_sanity.review_correction` short-circuits and returns the input.
+
+    Optimization: if an active `llm_review_*` correction already exists for
+    (date, nutrient), reuse its sanitized_value instead of re-calling the
+    LLM (which is non-deterministic).
     """
     if not corrections:
         return corrections, {}
+
+    existing_reviews = _load_active_llm_reviews()
 
     overrides: dict[str, dict[str, float | None]] = {}
     out: list[sanitize.Correction] = []
     for c in corrections:
         if c.source != "rule":
             out.append(c)
+            continue
+        prior = existing_reviews.get((c.date, c.nutrient_id))
+        if (c.date, c.nutrient_id) in existing_reviews:
+            # Reuse the canonical LLM verdict on file.
+            overrides.setdefault(c.date, {})[c.nutrient_id] = prior
+            # Drop this rule correction from the list -- it's shadowed by
+            # the existing LLM row, persist_corrections will skip it anyway.
             continue
         food_items = _get_food_items_for_date(c.date)
         daily_kcal = daily_kcal_by_date.get(c.date)
