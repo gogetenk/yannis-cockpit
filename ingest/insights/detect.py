@@ -145,6 +145,7 @@ def upsert_candidates(sb: SupabaseClient, candidates: list[InsightCandidate]) ->
         sb.request(
             "POST",
             "insight",
+            params={"on_conflict": "hash_dedup"},
             body=payload,
             extra_headers={
                 "Prefer": "resolution=merge-duplicates,return=minimal",
