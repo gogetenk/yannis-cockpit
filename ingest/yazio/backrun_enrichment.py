@@ -281,11 +281,20 @@ def main() -> None:
 
         existing_micros = {f: row.get(f) for f in MICRO_FIELDS}
         existing_sources = {f: row.get(f"{f}_source") for f in MICRO_FIELDS}
-        missing = [
-            f for f in MICRO_FIELDS
-            if existing_micros[f] is None
-            and (args.force or existing_sources[f] is None)
-        ]
+        if args.force:
+            # In force mode, treat every non-yazio source as re-estimable.
+            # A field still counts as "missing" if its current source is NULL
+            # or 'llm_estimate' (i.e. nothing or a prior LLM guess we can
+            # refine now that food_items grounding is available).
+            missing = [
+                f for f in MICRO_FIELDS
+                if existing_sources[f] in (None, "llm_estimate")
+            ]
+        else:
+            missing = [
+                f for f in MICRO_FIELDS
+                if existing_micros[f] is None and existing_sources[f] is None
+            ]
         if not missing:
             n_skipped_existing += 1
             continue
