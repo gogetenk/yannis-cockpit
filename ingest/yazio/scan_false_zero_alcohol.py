@@ -33,6 +33,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -143,19 +144,30 @@ def main() -> int:
     tmpdir = tempfile.mkdtemp(prefix="yazio-scan-")
     token_path = Path(tmpdir) / "token.txt"
     print(f"[scan] logging into Yazio (token cached at {token_path})", file=sys.stderr)
-    res = subprocess.run(
-        [
-            "yazio-exporter", "login",
-            os.environ["YAZIO_EMAIL"], os.environ["YAZIO_PASSWORD"],
-            "-o", str(token_path),
-        ],
-        capture_output=True,
-        text=True,
-    )
-    if res.returncode != 0:
-        print(f"[scan] yazio login failed (exit={res.returncode})", file=sys.stderr)
-        print(f"  stdout: {res.stdout[:500]}", file=sys.stderr)
-        print(f"  stderr: {res.stderr[:500]}", file=sys.stderr)
+    last_err = ""
+    for attempt in range(1, 7):
+        res = subprocess.run(
+            [
+                "yazio-exporter", "login",
+                os.environ["YAZIO_EMAIL"], os.environ["YAZIO_PASSWORD"],
+                "-o", str(token_path),
+            ],
+            capture_output=True,
+            text=True,
+        )
+        if res.returncode == 0:
+            break
+        last_err = (res.stderr or res.stdout or "").strip()
+        # Exponential backoff on 429 / transient errors: 30s, 60s, 120s, 240s, 480s.
+        wait = 30 * (2 ** (attempt - 1))
+        print(
+            f"[scan] yazio login attempt {attempt}/6 failed (exit={res.returncode}): "
+            f"{last_err[:200]} -- sleeping {wait}s",
+            file=sys.stderr,
+        )
+        time.sleep(wait)
+    else:
+        print(f"[scan] yazio login giving up: {last_err[:400]}", file=sys.stderr)
         return 3
 
     # Dates that already have a yazio_day row -- we only scan those, to
@@ -216,6 +228,8 @@ def main() -> int:
             continue
 
         n_scanned += 1
+        # Light politeness throttle to avoid 429 on long scans.
+        time.sleep(0.25)
         try:
             items = fetch_food_items(d_iso, token_path=token_path)
         except Exception as e:
