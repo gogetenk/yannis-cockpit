@@ -196,3 +196,26 @@ export interface CockpitSnapshot {
   pillars: PillarTile[];
   pillar_detail?: Partial<Record<DetailKey, PillarDetail & { sections?: BiologySection[] }>>;
 }
+
+// ===========================================================================
+// INSIGHTS — structured detector outputs (Famille 1, 4, 5).
+// Persisted in the `insight` Supabase table by the detector pipeline.
+// Surfaced on the home below SignalsSection, and fed into the AI brief.
+// ===========================================================================
+
+export type InsightFamily = 1 | 4 | 5;
+export type InsightSeverity = "info" | "watch" | "alert";
+
+export interface Insight {
+  id: string;
+  detector_key: string;
+  family: InsightFamily;
+  severity: InsightSeverity;
+  score: number;
+  title: string;
+  body: string;
+  metric_keys: string[];
+  data: Record<string, unknown>;
+  link_href: string | null;
+  detected_at: string; // ISO timestamp
+}

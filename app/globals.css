@@ -1824,3 +1824,92 @@ header.detail-header .detail-back:focus-visible {
   margin-left: 6px;
   vertical-align: middle;
 }
+
+/* ===========================================================
+   INSIGHTS CARD — top-3 active detector outputs below Signaux.
+   Same cream-rest container as .signals / .wegovy. Severity
+   shown via a 6px coloured dot (no side-stripe borders — see
+   design system ban). Whole row is a Link when link_href set.
+   =========================================================== */
+.insights-card {
+  background: var(--warm-cream-rest);
+  margin: 16px var(--pad-screen) 0;
+  border-radius: var(--rounded-banner);
+  padding: 14px 16px 8px;
+}
+.insights-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 8px;
+}
+.insights-head h3 {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--sage-ash);
+}
+.insights-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.insight {
+  border-top: 1px solid var(--sage-mist);
+}
+.insight:first-child { border-top: 0; }
+.insight-link,
+.insight {
+  display: grid;
+  grid-template-columns: 10px 1fr auto;
+  column-gap: 12px;
+  align-items: start;
+  padding: 12px 0;
+  text-decoration: none;
+  color: inherit;
+}
+.insight-link {
+  padding: 0;
+}
+.insight.insight--link {
+  padding: 0;
+}
+.insight.insight--link .insight-link {
+  padding: 12px 0;
+}
+.insight-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  display: inline-block;
+  margin-top: 6px;
+}
+.insight-dot--info  { background: var(--sage-mist); }
+.insight-dot--watch { background: var(--deep-sage); }
+.insight-dot--alert { background: var(--ambre-brule); }
+.insight-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.insight-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--sage-ink);
+  line-height: 1.25;
+}
+.insight-sub {
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--sage-ash);
+  line-height: 1.35;
+}
+.insight-chevron {
+  color: var(--sage-ash);
+  font-size: 18px;
+  line-height: 1;
+  align-self: center;
+}

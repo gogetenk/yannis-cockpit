@@ -7,6 +7,7 @@ import { BiologyCard } from "@/components/cockpit/BiologyCard";
 import { BioAgeTile } from "@/components/cockpit/BioAgeTile";
 import { PillarTile } from "@/components/cockpit/PillarTile";
 import { AICard } from "@/components/cockpit/AICard";
+import { InsightsCard } from "@/components/cockpit/InsightsCard";
 
 export const dynamic = "force-dynamic";
 
@@ -19,6 +20,7 @@ export default async function Page() {
       <Hero hero={data.hero} />
       {data.ai_brief && <AICard brief={data.ai_brief} />}
       <SignalsSection signals={data.signals} action={data.action_today} />
+      <InsightsCard />
       <WegovyBanner wegovy={data.wegovy} />
       {data.biology && <BiologyCard bio={data.biology} />}
       <main className="grid" aria-label="Piliers santé">
