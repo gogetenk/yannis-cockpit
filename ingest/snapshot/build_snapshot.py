@@ -1865,11 +1865,73 @@ def build_detail_biology(panels: list[dict], results: list[dict], today: date, c
     }
 
 
+INGEST_WATCH_TABLES = (
+    "yazio_day",
+    "withings_measurement",
+    "withings_activity_daily",
+    "hc_raw_record",
+    "wegovy_injection",
+)
+
+
+def _max_ingested_at() -> str | None:
+    """Return the max(ingested_at) across all watched ingest tables, or None."""
+    latest: str | None = None
+    for table in INGEST_WATCH_TABLES:
+        try:
+            rows = sb_get(table, {
+                "select": "ingested_at",
+                "order": "ingested_at.desc.nullslast",
+                "limit": "1",
+            })
+        except Exception as e:  # noqa: BLE001
+            print(f"  warn: max(ingested_at) probe failed for {table}: {e}", file=sys.stderr)
+            continue
+        if not rows:
+            continue
+        ts = rows[0].get("ingested_at")
+        if ts and (latest is None or ts > latest):
+            latest = ts
+    return latest
+
+
+def _last_snapshot_marker() -> str | None:
+    """Return the _last_max_ingested_at stored in the most recent cockpit_snapshot row."""
+    try:
+        rows = sb_get("cockpit_snapshot", {
+            "select": "payload",
+            "order": "snapshot_date.desc",
+            "limit": "1",
+        })
+    except Exception as e:  # noqa: BLE001
+        print(f"  warn: cockpit_snapshot probe failed: {e}", file=sys.stderr)
+        return None
+    if not rows:
+        return None
+    payload = rows[0].get("payload") or {}
+    return payload.get("_last_max_ingested_at")
+
+
 def main() -> None:
     for k in ("SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"):
         env(k)
     today = date.fromisoformat(os.environ.get("TODAY") or datetime.now(timezone.utc).date().isoformat())
-    print(f"→ building snapshot for {today}", file=sys.stderr)
+
+    force = bool(os.environ.get("FORCE_REBUILD"))
+    current_max = _max_ingested_at()
+    last_marker = _last_snapshot_marker()
+    if not force and current_max is not None and current_max == last_marker:
+        print(
+            f"no new data since last snapshot (max ingested_at={current_max}), skip",
+            file=sys.stderr,
+        )
+        return
+    if force:
+        print("FORCE_REBUILD set, bypassing skip check", file=sys.stderr)
+    print(
+        f"→ building snapshot for {today} (max ingested_at={current_max}, last_marker={last_marker})",
+        file=sys.stderr,
+    )
 
     measurements = sb_get("withings_measurement", {
         "select": "ts,type_code,value,position,raw",
@@ -1943,6 +2005,8 @@ def main() -> None:
         "huawei_5y_summary": _huawei_5y_summary(huawei_daily, today) if huawei_daily else None,
     }
     payload["ai_brief"] = build_ai_brief(payload, raw_context)
+    if current_max is not None:
+        payload["_last_max_ingested_at"] = current_max
 
     sb_upsert(
         [{"snapshot_date": today.isoformat(), "payload": payload}],

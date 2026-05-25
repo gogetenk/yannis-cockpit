@@ -17,6 +17,10 @@ on:
       today:
         description: "Override snapshot_date (ISO, defaults to today UTC)"
         default: ""
+      force:
+        description: "Force rebuild even if no new data since last snapshot"
+        type: boolean
+        default: false
 
 jobs:
   build:
@@ -36,4 +40,5 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           TODAY: ${{ github.event.inputs.today }}
+          FORCE_REBUILD: ${{ github.event.inputs.force == 'true' && '1' || '' }}
         run: python ingest/snapshot/build_snapshot.py

@@ -2,8 +2,8 @@ name: Ingest Yazio
 
 on:
   schedule:
-    # 8h / 10h / 18h Europe/Paris (CEST = UTC+2)
-    - cron: "0 6,8,16 * * *"
+    # Every 30 minutes (UTC). Snapshot job will early-skip if nothing new.
+    - cron: "*/30 * * * *"
   workflow_dispatch:
     inputs:
       days:
