@@ -7,20 +7,16 @@ interface Props { hero: WeightHero }
 
 const VIEW = { xMin: 30, xMax: 330, yMin: 10, yMax: 170 };
 
-// Gompertz refit on Wilding 2021 STEP-1. Must stay in lockstep with
-// ingest/snapshot/build_snapshot.py (ASYMPTOTE_KG, GOMP_TAU_WEEKS, GOMP_SHAPE).
-// Asymptote 74 (not 75) is the STEP-1 plateau projected onto Yannis' 86.6 kg
-// baseline; 75 kg is the user goal, finite-time reachable.
-const ASYMP = 74;
-const START = 86.6;
-const SHAPE = 1.4;
-function weightIdeal(t: number) { return ASYMP + (START - ASYMP) * Math.exp(-Math.pow(t / 20, SHAPE)); }
-function weightProjected(t: number, tau: number) { return ASYMP + (START - ASYMP) * Math.exp(-Math.pow(t / tau, SHAPE)); }
-function fitTau(currentKg: number, todayWeek: number): number {
-  if (todayWeek < 2) return 18;
-  const ratio = (currentKg - ASYMP) / (START - ASYMP);
-  if (ratio <= 0 || ratio >= 1) return 18;
-  return todayWeek / Math.pow(Math.log(1 / ratio), 1 / SHAPE);
+// Model constants now come from hero.model (backend-anchored to real W0 avg).
+// Functions take them as args so client + backend stay consistent.
+function weightIdeal(t: number, start: number, asymp: number, tau: number, shape: number) {
+  return asymp + (start - asymp) * Math.exp(-Math.pow(t / tau, shape));
+}
+function fitTau(currentKg: number, todayWeek: number, start: number, asymp: number, shape: number, defaultTau: number): number {
+  if (todayWeek < 2) return defaultTau;
+  const ratio = (currentKg - asymp) / (start - asymp);
+  if (ratio <= 0 || ratio >= 1) return defaultTau;
+  return todayWeek / Math.pow(Math.log(1 / ratio), 1 / shape);
 }
 
 function deltaPhrase(delta: number, tolerance: number): string {
@@ -43,6 +39,8 @@ export function Hero({ hero }: Props) {
 
   const startDate = useMemo(() => new Date(hero.start_date), [hero.start_date]);
   const { kg_min, kg_max, week_min, week_max } = hero.range;
+  // Backwards-compat: pre-model snapshots fall back to legacy hardcoded values.
+  const M = hero.model ?? { start_kg: 86.6, asymptote_kg: 74, tau_weeks: 20, shape: 1.4 };
 
   const xToWeek = useCallback((xView: number) => {
     const f = (xView - VIEW.xMin) / (VIEW.xMax - VIEW.xMin);
@@ -74,31 +72,34 @@ export function Hero({ hero }: Props) {
   const idealPath = useMemo(() => {
     const samples: string[] = [];
     for (let w = 0; w <= week_max; w += 2) {
-      samples.push(`${samples.length === 0 ? "M" : "L"} ${weekToX(w).toFixed(1)} ${wToY(weightIdeal(w)).toFixed(1)}`);
+      samples.push(`${samples.length === 0 ? "M" : "L"} ${weekToX(w).toFixed(1)} ${wToY(weightIdeal(w, M.start_kg, M.asymptote_kg, M.tau_weeks, M.shape)).toFixed(1)}`);
     }
     return samples.join(" ");
-  }, [weekToX, wToY, week_max]);
+  }, [weekToX, wToY, week_max, M.start_kg, M.asymptote_kg, M.tau_weeks, M.shape]);
 
-  const personalTau = useMemo(() => fitTau(hero.current_kg, hero.today_week), [hero.current_kg, hero.today_week]);
+  const personalTau = useMemo(
+    () => fitTau(hero.current_kg, hero.today_week, M.start_kg, M.asymptote_kg, M.shape, M.tau_weeks),
+    [hero.current_kg, hero.today_week, M.start_kg, M.asymptote_kg, M.shape, M.tau_weeks]
+  );
   const projectionPath = useMemo(() => {
     const samples: string[] = [];
     const start = hero.today_week;
     for (let w = start; w <= week_max; w += 2) {
-      samples.push(`${samples.length === 0 ? "M" : "L"} ${weekToX(w).toFixed(1)} ${wToY(weightProjected(w, personalTau)).toFixed(1)}`);
+      samples.push(`${samples.length === 0 ? "M" : "L"} ${weekToX(w).toFixed(1)} ${wToY(weightIdeal(w, M.start_kg, M.asymptote_kg, personalTau, M.shape)).toFixed(1)}`);
     }
     return samples.join(" ");
-  }, [weekToX, wToY, week_max, hero.today_week, personalTau]);
+  }, [weekToX, wToY, week_max, hero.today_week, personalTau, M.start_kg, M.asymptote_kg, M.shape]);
 
   const tolerancePath = useMemo(() => {
     const upper: string[] = [], lower: string[] = [];
     for (let w = 0; w <= week_max; w += 2) {
-      upper.push(`${upper.length === 0 ? "M" : "L"} ${weekToX(w).toFixed(1)} ${wToY(weightIdeal(w) + hero.tolerance_kg).toFixed(1)}`);
+      upper.push(`${upper.length === 0 ? "M" : "L"} ${weekToX(w).toFixed(1)} ${wToY(weightIdeal(w, M.start_kg, M.asymptote_kg, M.tau_weeks, M.shape) + hero.tolerance_kg).toFixed(1)}`);
     }
     for (let w = week_max; w >= 0; w -= 2) {
-      lower.push(`L ${weekToX(w).toFixed(1)} ${wToY(weightIdeal(w) - hero.tolerance_kg).toFixed(1)}`);
+      lower.push(`L ${weekToX(w).toFixed(1)} ${wToY(weightIdeal(w, M.start_kg, M.asymptote_kg, M.tau_weeks, M.shape) - hero.tolerance_kg).toFixed(1)}`);
     }
     return upper.join(" ") + " " + lower.join(" ") + " Z";
-  }, [weekToX, wToY, week_max, hero.tolerance_kg]);
+  }, [weekToX, wToY, week_max, hero.tolerance_kg, M.start_kg, M.asymptote_kg, M.tau_weeks, M.shape]);
 
   const realPath = useMemo(() => {
     return hero.real_points.map((p, i) => `${i === 0 ? "M" : "L"} ${weekToX(p.week).toFixed(1)} ${wToY(p.kg).toFixed(1)}`).join(" ");
@@ -110,10 +111,10 @@ export function Hero({ hero }: Props) {
   // Compute eta X from ideal: find when ideal crosses 75 within range.
   const etaWeeks = useMemo(() => {
     for (let w = 0; w <= week_max + 4; w += 0.1) {
-      if (weightProjected(w, personalTau) <= 75) return w;
+      if (weightIdeal(w, M.start_kg, M.asymptote_kg, personalTau, M.shape) <= 75) return w;
     }
     return week_max;
-  }, [week_max, personalTau]);
+  }, [week_max, personalTau, M.start_kg, M.asymptote_kg, M.shape]);
   const etaXcoord = weekToX(Math.min(etaWeeks, week_max));
   const etaYcoord = wToY(75);
 
@@ -129,8 +130,8 @@ export function Hero({ hero }: Props) {
     const xView = pointerToViewX(clientX);
     const t = xToWeek(xView);
     const isFuture = t > hero.today_week;
-    const ideal = weightIdeal(t);
-    const actual = isFuture ? weightProjected(t, personalTau) : weightActual(t);
+    const ideal = weightIdeal(t, M.start_kg, M.asymptote_kg, M.tau_weeks, M.shape);
+    const actual = isFuture ? weightIdeal(t, M.start_kg, M.asymptote_kg, personalTau, M.shape) : weightActual(t);
     const delta = actual - ideal;
     const wrapRect = wrapRef.current.getBoundingClientRect();
     const ttWidth = tooltipRef.current?.getBoundingClientRect().width || 180;

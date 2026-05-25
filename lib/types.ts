@@ -21,6 +21,7 @@ export interface WeightHero {
   range: { kg_min: number; kg_max: number; week_min: number; week_max: number };
   real_points: WeightTrajectoryPoint[];
   eta_75kg: string; // ISO date
+  model?: { start_kg: number; asymptote_kg: number; tau_weeks: number; shape: number };
 }
 
 export interface WegovyTitration {

@@ -357,6 +357,12 @@ def build_hero(measurements: list[dict], today: date) -> dict:
         "range": {"kg_min": 73, "kg_max": 87, "week_min": 0, "week_max": 52},
         "real_points": real_weight_points(measurements, start, today),
         "eta_75kg": eta_date.isoformat(),
+        "model": {
+            "start_kg": round(START_KG, 2),
+            "asymptote_kg": round(ASYMPTOTE_KG, 2),
+            "tau_weeks": GOMP_TAU_WEEKS,
+            "shape": GOMP_SHAPE,
+        },
     }
 
 
