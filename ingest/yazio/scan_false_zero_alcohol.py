@@ -143,16 +143,20 @@ def main() -> int:
     tmpdir = tempfile.mkdtemp(prefix="yazio-scan-")
     token_path = Path(tmpdir) / "token.txt"
     print(f"[scan] logging into Yazio (token cached at {token_path})", file=sys.stderr)
-    subprocess.run(
+    res = subprocess.run(
         [
             "yazio-exporter", "login",
             os.environ["YAZIO_EMAIL"], os.environ["YAZIO_PASSWORD"],
             "-o", str(token_path),
         ],
-        check=True,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
+        capture_output=True,
+        text=True,
     )
+    if res.returncode != 0:
+        print(f"[scan] yazio login failed (exit={res.returncode})", file=sys.stderr)
+        print(f"  stdout: {res.stdout[:500]}", file=sys.stderr)
+        print(f"  stderr: {res.stderr[:500]}", file=sys.stderr)
+        return 3
 
     # Dates that already have a yazio_day row -- we only scan those, to
     # avoid burning API quota on days the user never logged.
