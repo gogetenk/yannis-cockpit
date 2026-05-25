@@ -752,7 +752,7 @@ def enrich_rows_with_per_slot_estimates(
     food_items_by_date: dict[date, list[dict]],
     since: date,
     *,
-    unresolved_fat_share_threshold: float = 0.15,
+    unresolved_fat_share_threshold: float = 0.02,
 ) -> tuple[int, int]:
     """Top up day-level micros when some meal slots have NO resolved food items.
 
