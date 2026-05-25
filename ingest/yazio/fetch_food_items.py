@@ -187,19 +187,50 @@ def _recipe_row(it: dict, recipes: dict) -> dict[str, Any] | None:
 def _simple_row(it: dict) -> dict[str, Any]:
     """Project one simple_products[] entry (AI photo / freestyle).
 
-    Yazio embeds total macros at the item amount level (e.g. 350 g serving =
-    `energy`, `carb`, `protein`, `fat` already integrated). We project them
-    back to per-100g to match the schema; micros (sat / sodium / sugar /
-    fiber / alcohol) stay NULL -- the LLM enrichment layer fills them per-item
-    using `is_ai_estimate=true`.
+    Real Yazio payload (observed 2026-05):
+        {
+            "id": "...",
+            "name": "Spaghetti cuits ...",
+            "type": "simple_product",
+            "daytime": "lunch",
+            "nutrients": {
+                "energy.energy": 624,
+                "nutrient.fat": 21,
+                "nutrient.carb": 66,
+                "nutrient.protein": 43
+            },
+            "is_ai_generated": true
+        }
+
+    The `nutrients` map holds TOTALS for the portion (NOT per-100g) and there
+    is no explicit `amount` field. We synthesize a portion mass from kcal +
+    Atwater (kcal = 9*fat + 4*carb + 4*protein) so we can still emit
+    per-100g rates that fit the schema. When kcal/macros are missing we fall
+    back to 100 g (arbitrary -- the LLM enricher only needs the NAME and the
+    total portion, the per-100g rates are bookkeeping for the schema).
+
+    Micros (sat / sodium / sugar / fiber / alcohol) stay NULL -- the LLM
+    enrichment layer fills them per-item using `is_ai_estimate=true`.
     """
-    amount = _num(it.get("amount")) or 0.0
     meal = it.get("daytime", "?")
     name = it.get("name") or "<simple>"
-    energy = _num(it.get("energy"))
-    carb = _num(it.get("carb"))
-    protein = _num(it.get("protein"))
-    fat = _num(it.get("fat"))
+    nutr = it.get("nutrients") or {}
+    # Tolerate both the nested `nutrients.*` shape and a hypothetical flat
+    # one (energy/carb/...) so we do not regress if Yazio changes payload.
+    energy = _num(nutr.get("energy.energy")) or _num(it.get("energy"))
+    carb = _num(nutr.get("nutrient.carb")) or _num(it.get("carb"))
+    protein = _num(nutr.get("nutrient.protein")) or _num(it.get("protein"))
+    fat = _num(nutr.get("nutrient.fat")) or _num(it.get("fat"))
+
+    # Atwater synthesis of portion mass: simple_products do not carry an
+    # explicit amount. Approximate the portion at 1 g per kcal (rough but
+    # better than 0; lets per-100g rates round-trip into per-item grams).
+    amount = _num(it.get("amount"))
+    if amount is None or amount <= 0:
+        if energy and energy > 0:
+            amount = float(energy)  # 1 g/kcal heuristic
+        else:
+            amount = 100.0
 
     def _to_per_100g(v: float | None) -> float | None:
         if v is None or amount <= 0:
@@ -212,7 +243,7 @@ def _simple_row(it: dict) -> dict[str, Any]:
         "meal": meal,
         "source_kind": "simple",
         "is_ai_estimate": True,
-        "nutrient_alcohol_per_100g": None,
+        "nutrient_alcohol_per_100g": _to_per_100g(_num(nutr.get("nutrient.alcohol"))),
         "kcal_per_100g": _to_per_100g(energy),
         "sodium_per_100g_mg": None,
         "fat_g_per_100g": _to_per_100g(fat),
