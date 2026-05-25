@@ -289,6 +289,201 @@ def _call_llm(payload: dict[str, Any]) -> dict[str, Any] | None:
         return None
 
 
+# ---------- per-slot estimator (used when food_items are missing on a slot) ----
+
+SLOT_SYSTEM_PROMPT = (
+    "Tu es un nutritionniste qui ESTIME les micronutriments d'UN SEUL repas "
+    "(slot Yazio: breakfast / lunch / dinner / snack) a partir de ses macros "
+    "(kcal + proteines + glucides + lipides). Tu n'as PAS le nom des plats "
+    "donc tu dois categoriser par PROFIL MACRO et appliquer des heuristiques "
+    "physiologiques typiques. Reponds via l'outil JSON 'estimate_slot_micros'.\n\n"
+    "PROFILS MACRO -> ESTIMATIONS TYPIQUES (par repas, pas par jour):\n"
+    "- pasta-like (carb 50-80, fat 15-30, prot 30-50, ~600 kcal): "
+    "sat 5-8 g, sodium 600-1200 mg, sugar 4-8 g, fiber 4-7 g\n"
+    "- burger fast-food (fat 25-50, prot 25-40, carb 30-50, ~700-1000 kcal): "
+    "sat 10-18 g, sodium 1000-2000 mg, sugar 5-10 g, fiber 2-4 g\n"
+    "- salade composee (carb 10-30, fat 10-25, prot 20-40, ~400-600 kcal): "
+    "sat 2-5 g, sodium 300-800 mg, sugar 5-15 g, fiber 5-10 g\n"
+    "- sushi / asiatique (carb 50-80, fat 5-15, prot 20-40, ~500-700 kcal): "
+    "sat 1-3 g, sodium 1500-3000 mg, sugar 10-20 g, fiber 2-5 g\n"
+    "- viande grillee + accompagnement (prot 40-60, fat 15-30, carb 20-50, "
+    "~600-800 kcal): sat 5-10 g, sodium 500-1000 mg, sugar 3-8 g, fiber 3-6 g\n"
+    "- breakfast typique (prot 20-50, sucre 10-30): sat 3-8 g, sodium 200-600 mg, "
+    "sugar 10-25 g, fiber 3-8 g\n"
+    "- snack / dessert (sucre fort, sat variable): sat 3-10 g, sodium 100-400 mg, "
+    "sugar 15-40 g, fiber 1-4 g\n\n"
+    "BORNES PHYSIOLOGIQUES STRICTES (par repas):\n"
+    "- fat_sat_g <= 0.95 * fat_g du repas\n"
+    "- sodium_mg dans [0, 4000]\n"
+    "- sugar_g <= 0.95 * carb_g du repas\n"
+    "- fiber_g <= 0.4 * carb_g du repas\n"
+    "- alcohol_g dans [0, 50] (rare en lunch/breakfast, plus probable en dinner)\n\n"
+    "Si pas confiant sur la categorie (ex: macros tres atypiques), retourne "
+    "confidence faible (<= 0.4). Le code python decidera s'il garde la valeur."
+)
+
+
+SLOT_TOOL_SCHEMA = {
+    "name": "estimate_slot_micros",
+    "description": "Estime les micros d'un seul repas a partir de son profil macro.",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "fat_sat_g": {"type": "number", "minimum": 0},
+            "sodium_mg": {"type": "number", "minimum": 0},
+            "sugar_g": {"type": "number", "minimum": 0},
+            "fiber_g": {"type": "number", "minimum": 0},
+            "alcohol_g": {"type": "number", "minimum": 0},
+            "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+            "reason_fr": {"type": "string", "maxLength": 80},
+        },
+        "required": [
+            "fat_sat_g",
+            "sodium_mg",
+            "sugar_g",
+            "fiber_g",
+            "alcohol_g",
+            "confidence",
+            "reason_fr",
+        ],
+    },
+}
+
+
+# Per-slot clamps. sodium upper bound is per-slot, not per-day.
+SLOT_RANGES: dict[str, tuple[float, float]] = {
+    "fat_sat_g": (0.0, 300.0),  # narrowed by 0.95 * fat below
+    "sodium_mg": (0.0, 4000.0),
+    "sugar_g": (0.0, 800.0),    # narrowed by 0.95 * carb below
+    "fiber_g": (0.0, 200.0),    # narrowed by 0.4 * carb below
+    "alcohol_g": (0.0, 50.0),
+}
+
+SLOT_NUTRIENT_KEYS = ("fat_sat_g", "sodium_mg", "sugar_g", "fiber_g", "alcohol_g")
+
+
+def _clamp_slot(
+    key: str, raw: Any, slot_fat: float | None, slot_carb: float | None
+) -> float:
+    """Per-slot clamp. Always returns a float (defaults to 0 if raw is None)."""
+    if raw is None:
+        return 0.0
+    try:
+        v = float(raw)
+    except (TypeError, ValueError):
+        return 0.0
+    lo, hi = SLOT_RANGES[key]
+    if key == "fat_sat_g" and slot_fat is not None and slot_fat > 0:
+        hi = min(hi, slot_fat * 0.95)
+    elif key == "sugar_g" and slot_carb is not None and slot_carb > 0:
+        hi = min(hi, slot_carb * 0.95)
+    elif key == "fiber_g" and slot_carb is not None and slot_carb > 0:
+        hi = min(hi, slot_carb * 0.4)
+    if v < lo:
+        return lo
+    if v > hi:
+        return hi
+    return v
+
+
+# In-memory cache per run: (date_iso, meal_slot) -> estimate dict
+_SLOT_CACHE: dict[tuple[str, str], dict[str, float]] = {}
+
+
+def estimate_slot_micros(
+    date_iso: str,
+    meal_slot: str,
+    slot_kcal: float | None,
+    slot_protein: float | None,
+    slot_carb: float | None,
+    slot_fat: float | None,
+) -> dict[str, float]:
+    """Estimate micros for ONE unresolved meal slot from its macros only.
+
+    Returns {fat_sat_g, sodium_mg, sugar_g, fiber_g, alcohol_g, confidence,
+    reason_fr}. Values are clamped to per-slot physiological bounds.
+
+    Returns {} on any failure (no API key, SDK missing, API error). Caller
+    must treat an empty dict as "no estimate available -- skip this slot".
+
+    Cached per (date_iso, meal_slot) in process memory so multiple pipeline
+    stages within a single run don't pay the LLM cost twice.
+    """
+    cache_key = (date_iso, meal_slot)
+    if cache_key in _SLOT_CACHE:
+        return _SLOT_CACHE[cache_key]
+
+    key = os.environ.get("ANTHROPIC_API_KEY")
+    if not key:
+        _SLOT_CACHE[cache_key] = {}
+        return {}
+    try:
+        import anthropic
+    except ImportError:
+        print(
+            "  (enrich_estimation: anthropic SDK not installed -- slot estimator skipped)",
+            file=sys.stderr,
+        )
+        _SLOT_CACHE[cache_key] = {}
+        return {}
+
+    payload = {
+        "meal_slot": meal_slot,
+        "kcal": slot_kcal,
+        "protein_g": slot_protein,
+        "carb_g": slot_carb,
+        "fat_g": slot_fat,
+    }
+    try:
+        client = anthropic.Anthropic(api_key=key)
+        resp = client.messages.create(
+            model=MODEL,
+            max_tokens=400,
+            system=SLOT_SYSTEM_PROMPT,
+            tools=[SLOT_TOOL_SCHEMA],
+            tool_choice={"type": "tool", "name": "estimate_slot_micros"},
+            messages=[
+                {
+                    "role": "user",
+                    "content": json.dumps(payload, ensure_ascii=False, default=str),
+                }
+            ],
+        )
+        raw: dict[str, Any] | None = None
+        for block in resp.content or []:
+            if (
+                getattr(block, "type", None) == "tool_use"
+                and getattr(block, "name", None) == "estimate_slot_micros"
+            ):
+                inp = block.input
+                if isinstance(inp, dict):
+                    raw = inp
+                elif isinstance(inp, str):
+                    raw = json.loads(inp)
+                break
+        if raw is None:
+            _SLOT_CACHE[cache_key] = {}
+            return {}
+    except Exception as e:
+        print(
+            f"  (enrich_estimation: slot LLM call failed [{date_iso}/{meal_slot}]: {e})",
+            file=sys.stderr,
+        )
+        _SLOT_CACHE[cache_key] = {}
+        return {}
+
+    out: dict[str, float] = {}
+    for k in SLOT_NUTRIENT_KEYS:
+        out[k] = _clamp_slot(k, raw.get(k), slot_fat, slot_carb)
+    try:
+        out["confidence"] = max(0.0, min(1.0, float(raw.get("confidence", 0.0))))
+    except (TypeError, ValueError):
+        out["confidence"] = 0.0
+    out["reason_fr"] = str(raw.get("reason_fr") or "")[:80]
+    _SLOT_CACHE[cache_key] = out
+    return out
+
+
 def estimate_day_micros(
     day_iso: str,
     meals: list[dict],

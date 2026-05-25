@@ -746,6 +746,163 @@ def enrich_rows_with_llm_estimates(
     return n_dates, n_filled
 
 
+def enrich_rows_with_per_slot_estimates(
+    rows: list[dict],
+    meals_by_date: dict[date, list[dict]],
+    food_items_by_date: dict[date, list[dict]],
+    since: date,
+    *,
+    unresolved_fat_share_threshold: float = 0.15,
+) -> tuple[int, int]:
+    """Top up day-level micros when some meal slots have NO resolved food items.
+
+    Problem: when the user logs via Yazio's photo-AI, an item lands in
+    `yazio_meal` (macros) but NOT in `yazio_food_item_daily`. Consequence:
+    `yazio_micronutrient_daily` only aggregates the *resolved* items, so
+    saturated fat / sodium / sugar / fiber / alcohol are SYSTEMATICALLY
+    under-counted on those days -- even though `fat_sat_g_source='yazio'`
+    suggests the value is trustworthy.
+
+    Fix: detect per-slot coverage. For every slot WITHOUT food items whose
+    macro contribution is significant (>= `unresolved_fat_share_threshold`
+    of day fat), ask Haiku to estimate that slot's micros from its macros
+    alone, then ADD the estimates to whatever Yazio already aggregated for
+    the day.
+
+    Mutates rows in place. Returns (n_days_enriched, n_slot_calls).
+
+    Sources after this pass:
+      - 'yazio'        -- unchanged, no unresolved slots / negligible share
+      - 'llm_estimate' -- unchanged (full-day LLM ran earlier; no Yazio value)
+      - 'mixed'        -- Yazio value + per-slot LLM top-up
+    """
+    n_days = 0
+    n_calls = 0
+    # Map kept by date for fast lookup of which slots are resolved.
+    resolved_slots_by_date: dict[date, set[str]] = defaultdict(set)
+    for d, items in food_items_by_date.items():
+        for it in items or []:
+            slot = it.get("meal_slot") or it.get("meal")
+            if slot:
+                resolved_slots_by_date[d].add(slot)
+
+    field_keys = ("fat_sat_g", "sodium_mg", "sugar_g", "fiber_g", "alcohol_g")
+
+    for row in rows:
+        d_iso = row["date"]
+        try:
+            d = date.fromisoformat(d_iso)
+        except (TypeError, ValueError):
+            continue
+        if d < since:
+            continue
+        meals = meals_by_date.get(d) or []
+        if not meals:
+            continue
+        resolved_slots = resolved_slots_by_date.get(d, set())
+
+        # Total day-level fat as reported across yazio_meal rows. Used to
+        # judge whether unresolved slots are significant enough to warrant
+        # an LLM call.
+        day_fat = 0.0
+        for m in meals:
+            v = m.get("fat_g")
+            if v is None:
+                continue
+            try:
+                day_fat += float(v)
+            except (TypeError, ValueError):
+                pass
+
+        # Collect unresolved slots with their macros.
+        unresolved: list[dict] = []
+        for m in meals:
+            slot = m.get("meal") or m.get("name")
+            if not slot or slot in resolved_slots:
+                continue
+            slot_fat = m.get("fat_g")
+            try:
+                slot_fat_f = float(slot_fat) if slot_fat is not None else 0.0
+            except (TypeError, ValueError):
+                slot_fat_f = 0.0
+            unresolved.append({"slot": slot, "macros": m, "fat": slot_fat_f})
+
+        if not unresolved:
+            continue
+
+        # Significance gate: combined fat share of unresolved slots vs day.
+        unresolved_fat = sum(u["fat"] for u in unresolved)
+        if day_fat <= 0:
+            continue
+        if unresolved_fat / day_fat < unresolved_fat_share_threshold:
+            continue
+
+        # Per-slot LLM estimates -> sum per nutrient.
+        per_nutrient_topup: dict[str, float] = {k: 0.0 for k in field_keys}
+        any_call = False
+        for u in unresolved:
+            m = u["macros"]
+            est = enrich_estimation.estimate_slot_micros(
+                d_iso,
+                u["slot"],
+                m.get("kcal"),
+                m.get("protein_g"),
+                m.get("carb_g"),
+                m.get("fat_g"),
+            )
+            if not est:
+                continue
+            any_call = True
+            n_calls += 1
+            for k in field_keys:
+                v = est.get(k)
+                if v is None:
+                    continue
+                try:
+                    per_nutrient_topup[k] += float(v)
+                except (TypeError, ValueError):
+                    continue
+
+        if not any_call:
+            continue
+
+        touched = False
+        for k in field_keys:
+            topup = per_nutrient_topup.get(k, 0.0)
+            if topup <= 0:
+                continue
+            current = row.get(k)
+            current_source = row.get(f"{k}_source")
+            # We never overwrite an LLM-reviewed sanitize verdict.
+            if current_source == "llm_review":
+                continue
+            if current is None:
+                # No Yazio value at all -- the full-day estimator should have
+                # run, but if it didn't anchor this nutrient, use the per-slot
+                # top-up as the sole value.
+                row[k] = round(topup, 3)
+                row[f"{k}_source"] = "llm_estimate"
+            else:
+                try:
+                    new_val = float(current) + topup
+                except (TypeError, ValueError):
+                    continue
+                row[k] = round(new_val, 3)
+                # 'mixed' = Yazio resolved items + LLM-estimated unresolved slots
+                row[f"{k}_source"] = "mixed"
+            touched = True
+            # Re-derive pct_e_sat if saturated fat changed.
+            if k == "fat_sat_g":
+                kcal = row.get("kcal")
+                if kcal and kcal > 0 and row[k] is not None:
+                    row["pct_e_sat"] = round(
+                        (row[k] * 9.0) / kcal * 100.0, 2
+                    )
+        if touched:
+            n_days += 1
+    return n_days, n_calls
+
+
 def _load_existing_sources() -> dict[str, dict[str, str | None]]:
     """Map date_iso -> {field_source: value} for the source columns already on
     daily_features. Used by backrun --skip-existing and as cheap idempotency
@@ -980,6 +1137,23 @@ def main() -> None:
         print(
             f"[features] LLM micro estimation: {n_dates_llm} day(s) processed, "
             f"{n_filled_llm} nutrient(s) filled",
+            file=sys.stderr,
+        )
+
+    # Per-slot LLM top-up: when only some meal slots have resolved food items
+    # (typical of Yazio's photo-AI flow), the day-level micros aggregated by
+    # Yazio under-count the unresolved slots. Estimate those slots' micros
+    # from their macros and ADD to the Yazio totals. Source becomes 'mixed'.
+    n_slot_days, n_slot_calls = enrich_rows_with_per_slot_estimates(
+        raw_rows,
+        meals_by_d,
+        food_items_by_d,
+        since,
+    )
+    if n_slot_days:
+        print(
+            f"[features] per-slot LLM top-up: {n_slot_days} day(s) enriched, "
+            f"{n_slot_calls} slot call(s)",
             file=sys.stderr,
         )
 
