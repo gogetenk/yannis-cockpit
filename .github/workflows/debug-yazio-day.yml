@@ -1,0 +1,30 @@
+name: Debug Yazio Day
+
+on:
+  workflow_dispatch:
+    inputs:
+      date:
+        description: "Date to inspect (YYYY-MM-DD)"
+        default: "2026-05-23"
+
+jobs:
+  debug:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: ingest/yazio/requirements.txt
+
+      - name: Install deps
+        run: pip install -r ingest/yazio/requirements.txt
+
+      - name: Run debug
+        env:
+          YAZIO_EMAIL: ${{ secrets.YAZIO_EMAIL }}
+          YAZIO_PASSWORD: ${{ secrets.YAZIO_PASSWORD }}
+        run: python ingest/yazio/debug_one_day.py --date "${{ github.event.inputs.date }}"
