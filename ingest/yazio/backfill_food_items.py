@@ -153,7 +153,9 @@ def fetch_one_date(token: Path, tmp: Path, d: date) -> list[dict]:
 
     try:
         days = json.loads(days_path.read_text())
-        products = json.loads(products_path.read_text()).get("products", {})
+        products_blob = json.loads(products_path.read_text())
+        products = products_blob.get("products", {}) or {}
+        recipes = products_blob.get("recipes", {}) or {}
     except Exception as e:
         log(f"  {target}: parse failed ({e}); skipping")
         return []
@@ -164,7 +166,7 @@ def fetch_one_date(token: Path, tmp: Path, d: date) -> list[dict]:
             except OSError:
                 pass
 
-    by_date = parse_food_items_from_days(days, products)
+    by_date = parse_food_items_from_days(days, products, recipes)
     items = by_date.get(target) or []
     per_slot: dict[str, int] = {}
     rows: list[dict] = []
@@ -181,6 +183,8 @@ def fetch_one_date(token: Path, tmp: Path, d: date) -> list[dict]:
             "item_name": it.get("name") or "<unknown>",
             "amount_g": it.get("amount_g"),
             "product_id": it.get("product_id"),
+            "source_kind": it.get("source_kind") or "product",
+            "is_ai_estimate": bool(it.get("is_ai_estimate")),
             "kcal_per_100g": it.get("kcal_per_100g"),
             "protein_per_100g": it.get("protein_g_per_100g"),
             "carb_per_100g": it.get("carb_g_per_100g"),

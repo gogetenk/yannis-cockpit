@@ -346,7 +346,12 @@ def load_yazio_food_items() -> dict[date, list[dict]]:
     """
     rows = sb_get(
         "yazio_food_item_daily",
-        {"select": "date,meal_slot,item_index,item_name,amount_g"},
+        {
+            "select": (
+                "date,meal_slot,item_index,item_name,amount_g,is_ai_estimate,"
+                "source_kind,kcal_per_100g,protein_per_100g,carb_per_100g,fat_per_100g"
+            )
+        },
     )
     out: dict[date, list[dict]] = defaultdict(list)
     for r in rows:
@@ -361,6 +366,12 @@ def load_yazio_food_items() -> dict[date, list[dict]]:
                 "item_index": r.get("item_index"),
                 "name": r.get("item_name"),
                 "amount_g": r.get("amount_g"),
+                "is_ai_estimate": bool(r.get("is_ai_estimate")),
+                "source_kind": r.get("source_kind") or "product",
+                "kcal_per_100g": r.get("kcal_per_100g"),
+                "protein_per_100g": r.get("protein_per_100g"),
+                "carb_per_100g": r.get("carb_per_100g"),
+                "fat_per_100g": r.get("fat_per_100g"),
             }
         )
     # Stable order: by meal slot then item_index so the LLM sees the same
@@ -744,6 +755,128 @@ def enrich_rows_with_llm_estimates(
                         (payload["value"] * 9.0) / kcal * 100.0, 2
                     )
     return n_dates, n_filled
+
+
+def enrich_rows_with_per_item_estimates(
+    rows: list[dict],
+    food_items_by_date: dict[date, list[dict]],
+    since: date,
+) -> tuple[int, int, int]:
+    """Per-item LLM enrichment for `is_ai_estimate=true` rows.
+
+    The Yazio AI-photo / freestyle items (`source_kind='simple'`) land in
+    `yazio_food_item_daily` with macros only -- saturated fat, sodium, sugar,
+    fiber, alcohol are unknown. Yazio's day-level micronutrient totals are
+    derived from `products` lookups only, so those items contribute 0 to the
+    micro columns -> systematic under-count.
+
+    For each AI item on each in-scope day, we ask Haiku (with the item NAME
+    and its weight) for an item-level micros estimate, then ADD the sum to
+    whatever Yazio already aggregated. Result becomes:
+      - 'mixed'        -- when Yazio supplied something AND items added more
+      - 'llm_estimate' -- when Yazio had nothing and items provided the only value
+
+    Cached per (name, amount_g) across days via `enrich_estimation` -- the
+    same dish logged 30 times costs 1 LLM call.
+
+    Mutates rows in place. Returns (n_days_touched, n_items_estimated, n_llm_calls).
+    """
+    n_days = 0
+    n_items = 0
+    field_keys = ("fat_sat_g", "sodium_mg", "sugar_g", "fiber_g", "alcohol_g")
+    start_calls = enrich_estimation.get_item_call_count()
+
+    for row in rows:
+        d_iso = row["date"]
+        try:
+            d = date.fromisoformat(d_iso)
+        except (TypeError, ValueError):
+            continue
+        if d < since:
+            continue
+        items = food_items_by_date.get(d) or []
+        ai_items = [it for it in items if it.get("is_ai_estimate")]
+        if not ai_items:
+            continue
+
+        per_nutrient_topup: dict[str, float] = {k: 0.0 for k in field_keys}
+        any_estimate = False
+        for it in ai_items:
+            amount = it.get("amount_g") or 0
+            try:
+                amount_f = float(amount)
+            except (TypeError, ValueError):
+                amount_f = 0.0
+            if amount_f <= 0:
+                continue
+            # Derive item-level macros (g) from per-100g profile so the LLM
+            # has a coherent picture (it sees grams, not per-100g rates).
+            def _g(per100: Any) -> float | None:
+                v = _to_num(per100)
+                if v is None:
+                    return None
+                return v * amount_f / 100.0
+
+            kcal = _g(it.get("kcal_per_100g"))
+            protein_g = _g(it.get("protein_per_100g"))
+            carb_g = _g(it.get("carb_per_100g"))
+            fat_g_item = _g(it.get("fat_per_100g"))
+            est = enrich_estimation.estimate_item_micros(
+                name=it.get("name") or "",
+                amount_g=amount_f,
+                kcal=kcal,
+                protein_g=protein_g,
+                carb_g=carb_g,
+                fat_g=fat_g_item,
+            )
+            if not est:
+                continue
+            any_estimate = True
+            n_items += 1
+            for k in field_keys:
+                v = est.get(k)
+                if v is None:
+                    continue
+                try:
+                    per_nutrient_topup[k] += float(v)
+                except (TypeError, ValueError):
+                    continue
+
+        if not any_estimate:
+            continue
+
+        touched = False
+        for k in field_keys:
+            topup = per_nutrient_topup.get(k, 0.0)
+            if topup <= 0:
+                continue
+            current = row.get(k)
+            current_source = row.get(f"{k}_source")
+            # Never overwrite an LLM-reviewed sanitize verdict.
+            if current_source == "llm_review":
+                continue
+            if current is None:
+                row[k] = round(topup, 3)
+                row[f"{k}_source"] = "llm_estimate"
+            else:
+                try:
+                    new_val = float(current) + topup
+                except (TypeError, ValueError):
+                    continue
+                row[k] = round(new_val, 3)
+                row[f"{k}_source"] = "mixed"
+            touched = True
+            if k == "fat_sat_g":
+                kcal_day = row.get("kcal")
+                if kcal_day and kcal_day > 0 and row[k] is not None:
+                    row["pct_e_sat"] = round(
+                        (row[k] * 9.0) / kcal_day * 100.0, 2
+                    )
+        if touched:
+            n_days += 1
+
+    n_calls = enrich_estimation.get_item_call_count() - start_calls
+    return n_days, n_items, n_calls
 
 
 def enrich_rows_with_per_slot_estimates(
@@ -1137,6 +1270,22 @@ def main() -> None:
         print(
             f"[features] LLM micro estimation: {n_dates_llm} day(s) processed, "
             f"{n_filled_llm} nutrient(s) filled",
+            file=sys.stderr,
+        )
+
+    # Per-item LLM enrichment for is_ai_estimate=true rows (simple_products
+    # logged via Yazio AI photo / freestyle). Much more accurate than the
+    # per-slot heuristic below because we know the item NAME. Cached per
+    # (name, amount_g) -- repeated dishes cost 1 LLM call across all days.
+    n_item_days, n_items_est, n_item_calls = enrich_rows_with_per_item_estimates(
+        raw_rows,
+        food_items_by_d,
+        since,
+    )
+    if n_item_days:
+        print(
+            f"[features] per-item LLM enrichment (AI): {n_item_days} day(s) "
+            f"touched, {n_items_est} item(s) estimated, {n_item_calls} LLM call(s)",
             file=sys.stderr,
         )
 

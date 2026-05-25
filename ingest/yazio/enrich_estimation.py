@@ -484,6 +484,209 @@ def estimate_slot_micros(
     return out
 
 
+# ---------- per-item estimator (used for is_ai_estimate=true items) ----------
+
+ITEM_SYSTEM_PROMPT = (
+    "Tu es un nutritionniste qui ESTIME les micronutriments d'UN SEUL aliment "
+    "log via Yazio AI photo / saisie libre. Tu connais le NOM de l'aliment, "
+    "sa QUANTITE en grammes et ses macros (kcal/prot/carb/fat). Tu dois "
+    "deduire fat_sat / sodium / sugar / fiber / alcohol pour cette portion "
+    "specifique a partir de ta connaissance nutritionnelle.\n\n"
+    "REGLES DE CATEGORISATION (toujours par la portion fournie):\n"
+    "- Charcuterie / fromage affine / beurre / creme : sat 60-70% du fat, sodium 400-1200 mg/100g pour charcuterie\n"
+    "- Plat asiatique / sushi / ramen / wok : sodium 600-1500 mg pour la portion\n"
+    "- Burger / fast-food : sat ~25-35% du fat, sodium 400-900 mg\n"
+    "- Pizza : sodium 600-1200 mg/part, sat 25-30% du fat\n"
+    "- Salade composee maison / legumes : sodium 100-400 mg, fiber 3-8 g/100g de legumes\n"
+    "- Plat prepare industriel / surgele / sauce : sodium >= 500 mg/portion typique\n"
+    "- Pain / pates / riz : sodium 300-600 mg/100g pour pain, fiber 2-7 g/100g\n"
+    "- Boisson alcoolisee (biere, vin, spiritueux): alcohol_g calcule a partir du volume * degre\n"
+    "- Fruits / legumes frais : sugar 5-15 g/100g pour fruits, fiber 1-4 g/100g\n"
+    "- Yaourt / lait / fromage blanc : sat selon teneur en fat, sugar 4-12 g/100g si sucre\n\n"
+    "BORNES PHYSIOLOGIQUES STRICTES (par item):\n"
+    "- fat_sat_g <= 0.95 * fat_g de l'item\n"
+    "- sugar_g <= 0.95 * carb_g de l'item\n"
+    "- fiber_g <= 0.4 * carb_g de l'item\n"
+    "- alcohol_g = 0 sauf si le nom indique une boisson alcoolisee\n"
+    "- sodium_mg dans [0, 4000] pour une portion unique\n\n"
+    "Si le nom est trop vague (ex: 'plat', 'snack') -> confidence faible, "
+    "valeurs prudentes (moyennes basses). Repond via l'outil 'estimate_item_micros'."
+)
+
+
+ITEM_TOOL_SCHEMA = {
+    "name": "estimate_item_micros",
+    "description": "Estime les micros pour UN aliment donne (nom + portion + macros).",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "fat_sat_g": {"type": "number", "minimum": 0},
+            "sodium_mg": {"type": "number", "minimum": 0},
+            "sugar_g": {"type": "number", "minimum": 0},
+            "fiber_g": {"type": "number", "minimum": 0},
+            "alcohol_g": {"type": "number", "minimum": 0},
+            "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+            "reason_fr": {"type": "string", "maxLength": 80},
+        },
+        "required": [
+            "fat_sat_g",
+            "sodium_mg",
+            "sugar_g",
+            "fiber_g",
+            "alcohol_g",
+            "confidence",
+            "reason_fr",
+        ],
+    },
+}
+
+
+ITEM_RANGES: dict[str, tuple[float, float]] = {
+    "fat_sat_g": (0.0, 300.0),
+    "sodium_mg": (0.0, 4000.0),
+    "sugar_g": (0.0, 800.0),
+    "fiber_g": (0.0, 200.0),
+    "alcohol_g": (0.0, 100.0),
+}
+
+ITEM_NUTRIENT_KEYS = ("fat_sat_g", "sodium_mg", "sugar_g", "fiber_g", "alcohol_g")
+
+# Process-level cache keyed by (name_lower, rounded_amount_g) so we don't pay
+# the LLM cost twice for the same item logged across multiple days (e.g.
+# "Spaghetti carbonara 350 g" repeated).
+_ITEM_CACHE: dict[tuple[str, int], dict[str, float]] = {}
+
+# In-process counter so the build script can report total LLM call volume.
+_ITEM_CALL_COUNT = 0
+
+
+def _clamp_item(
+    key: str, raw: Any, fat_g: float | None, carb_g: float | None
+) -> float:
+    """Per-item physiological clamp. Defaults to 0 when raw is None."""
+    if raw is None:
+        return 0.0
+    try:
+        v = float(raw)
+    except (TypeError, ValueError):
+        return 0.0
+    lo, hi = ITEM_RANGES[key]
+    if key == "fat_sat_g" and fat_g is not None and fat_g > 0:
+        hi = min(hi, fat_g * 0.95)
+    elif key == "sugar_g" and carb_g is not None and carb_g > 0:
+        hi = min(hi, carb_g * 0.95)
+    elif key == "fiber_g" and carb_g is not None and carb_g > 0:
+        hi = min(hi, carb_g * 0.4)
+    if v < lo:
+        return lo
+    if v > hi:
+        return hi
+    return v
+
+
+def get_item_call_count() -> int:
+    """Number of LLM calls placed since process start (cache misses)."""
+    return _ITEM_CALL_COUNT
+
+
+def estimate_item_micros(
+    name: str,
+    amount_g: float,
+    kcal: float | None,
+    protein_g: float | None,
+    carb_g: float | None,
+    fat_g: float | None,
+) -> dict[str, float]:
+    """Estimate {fat_sat_g, sodium_mg, sugar_g, fiber_g, alcohol_g} for one item.
+
+    Caches results per (name_lower, rounded_amount_g) so repeated items across
+    days share one LLM call. Returns {} when the SDK / API key is missing or
+    the call fails -- caller treats that as "no estimate, contributes 0".
+    """
+    global _ITEM_CALL_COUNT
+    safe_name = (name or "").strip()
+    if not safe_name:
+        return {}
+    try:
+        amount_round = int(round(float(amount_g or 0)))
+    except (TypeError, ValueError):
+        amount_round = 0
+    cache_key = (safe_name.lower(), amount_round)
+    if cache_key in _ITEM_CACHE:
+        return _ITEM_CACHE[cache_key]
+
+    key = os.environ.get("ANTHROPIC_API_KEY")
+    if not key:
+        _ITEM_CACHE[cache_key] = {}
+        return {}
+    try:
+        import anthropic
+    except ImportError:
+        print(
+            "  (enrich_estimation: anthropic SDK not installed -- item estimator skipped)",
+            file=sys.stderr,
+        )
+        _ITEM_CACHE[cache_key] = {}
+        return {}
+
+    payload = {
+        "name": safe_name,
+        "amount_g": amount_g,
+        "kcal": kcal,
+        "protein_g": protein_g,
+        "carb_g": carb_g,
+        "fat_g": fat_g,
+    }
+    try:
+        client = anthropic.Anthropic(api_key=key)
+        _ITEM_CALL_COUNT += 1
+        resp = client.messages.create(
+            model=MODEL,
+            max_tokens=300,
+            system=ITEM_SYSTEM_PROMPT,
+            tools=[ITEM_TOOL_SCHEMA],
+            tool_choice={"type": "tool", "name": "estimate_item_micros"},
+            messages=[
+                {
+                    "role": "user",
+                    "content": json.dumps(payload, ensure_ascii=False, default=str),
+                }
+            ],
+        )
+        raw: dict[str, Any] | None = None
+        for block in resp.content or []:
+            if (
+                getattr(block, "type", None) == "tool_use"
+                and getattr(block, "name", None) == "estimate_item_micros"
+            ):
+                inp = block.input
+                if isinstance(inp, dict):
+                    raw = inp
+                elif isinstance(inp, str):
+                    raw = json.loads(inp)
+                break
+        if raw is None:
+            _ITEM_CACHE[cache_key] = {}
+            return {}
+    except Exception as e:
+        print(
+            f"  (enrich_estimation: item LLM call failed [{safe_name[:40]}]: {e})",
+            file=sys.stderr,
+        )
+        _ITEM_CACHE[cache_key] = {}
+        return {}
+
+    out: dict[str, float] = {}
+    for k in ITEM_NUTRIENT_KEYS:
+        out[k] = _clamp_item(k, raw.get(k), fat_g, carb_g)
+    try:
+        out["confidence"] = max(0.0, min(1.0, float(raw.get("confidence", 0.0))))
+    except (TypeError, ValueError):
+        out["confidence"] = 0.0
+    _ITEM_CACHE[cache_key] = out
+    return out
+
+
 def estimate_day_micros(
     day_iso: str,
     meals: list[dict],
