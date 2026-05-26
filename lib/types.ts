@@ -35,6 +35,8 @@ export interface WegovyTitration {
   days_to_next_injection?: number;
   last_injection_label?: string;
   last_injection_date?: string | null;
+  next_injection_date?: string | null;
+  last_injection_unknown?: boolean;
   is_overdue?: boolean;
 }
 
