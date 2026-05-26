@@ -504,14 +504,14 @@ def build_signals(yazio: list[dict], measurements: list[dict], activity: list[di
         lbm = float(lbm_row["value"])
         avg_protein = sum(proteins) / len(proteins)
         target_g = round(lbm * 2.0)  # 2.0 g/kg LBM target
-        # 3 tiers: ok >=cible · watch 80-100% · alert <80%
-        ratio = avg_protein / target_g if target_g else 1
-        if ratio < 0.80:
+        # 3 tiers: alert < 120 g (plancher anti-sarcopénie absolu) ·
+        # watch 120-cible · ok >= cible
+        if avg_protein < 120:
             status = "alert"
-            label = "sous 80 % de la cible"
-        elif ratio < 1.0:
+            label = "sous le plancher 120 g/j"
+        elif avg_protein < target_g:
             status = "watch"
-            label = "à surveiller"
+            label = "sous la cible"
         else:
             status = "ok"
             label = "conforme"
@@ -519,7 +519,7 @@ def build_signals(yazio: list[dict], measurements: list[dict], activity: list[di
         out.append({
             "id": "protein",
             "title": "Protéines",
-            "sub": f"cible {target_g} g/j",
+            "sub": f"min 120 · cible {target_g} g/j",
             "value": str(int(round(avg_protein))),
             "unit": "g/j",
             "status": status,
