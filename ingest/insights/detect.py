@@ -183,6 +183,31 @@ def main() -> int:
     today = date.fromisoformat(today_iso)
 
     sb = SupabaseClient(url, key)
+
+    # Fail-fast: skip if daily_features hasn't been rebuilt since the last
+    # detection run. Detectors are pure functions of daily_features, so
+    # re-running on identical data is wasted compute. FORCE_REBUILD bypass.
+    if not os.environ.get("FORCE_REBUILD"):
+        try:
+            df_max_rows = sb.request(
+                "GET", "daily_features",
+                params={"select": "computed_at", "order": "computed_at.desc.nullslast", "limit": "1"},
+            )
+            ins_max_rows = sb.request(
+                "GET", "insight",
+                params={"select": "detected_at", "order": "detected_at.desc.nullslast", "limit": "1"},
+            )
+            df_max = df_max_rows[0]["computed_at"] if df_max_rows else None
+            ins_max = ins_max_rows[0]["detected_at"] if ins_max_rows else None
+            if df_max and ins_max and df_max <= ins_max:
+                print(
+                    f"[insights] no new daily_features since last detect (df={df_max} <= ins={ins_max}), skip",
+                    file=sys.stderr,
+                )
+                return 0
+        except Exception as e:
+            print(f"[insights] fail-fast probe error: {e} (proceeding)", file=sys.stderr)
+
     df = load_daily_features(sb, today)
     print(f"[insights] loaded daily_features rows={len(df)}", file=sys.stderr)
 

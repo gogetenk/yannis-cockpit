@@ -23,10 +23,68 @@ Cost: ~$0.40 for a 730-day backrun (~50-100 tok in + ~80 tok out per day)
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import sys
 from typing import Any
+
+import requests
+
+
+# ---------- DB-backed LLM cache (avoid re-paying for the same Haiku query) ----
+# `llm_estimate_cache` is a (cache_key PK, model, kind, output jsonb) table.
+# Keys are deterministic SHA256 of (kind, model, payload). Cron-driven jobs
+# re-run on the same window many times -- without this cache, every cron
+# tick re-calls Haiku for slots/items it already estimated.
+
+def _cache_key(kind: str, model: str, payload: dict[str, Any]) -> str:
+    canonical = json.dumps(payload, sort_keys=True, ensure_ascii=False, default=str)
+    return hashlib.sha256(f"{kind}|{model}|{canonical}".encode("utf-8")).hexdigest()
+
+
+def _cache_get(key: str) -> dict[str, Any] | None:
+    url = os.environ.get("SUPABASE_URL")
+    sb_key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
+    if not (url and sb_key):
+        return None
+    try:
+        r = requests.get(
+            f"{url}/rest/v1/llm_estimate_cache",
+            params={"select": "output", "cache_key": f"eq.{key}", "limit": "1"},
+            headers={
+                "apikey": sb_key,
+                "Authorization": f"Bearer {sb_key}",
+            },
+            timeout=10,
+        )
+        if r.ok and r.json():
+            return r.json()[0]["output"]
+    except Exception as e:
+        print(f"  (enrich_estimation: cache_get failed: {e})", file=sys.stderr)
+    return None
+
+
+def _cache_put(key: str, kind: str, model: str, output: dict[str, Any]) -> None:
+    url = os.environ.get("SUPABASE_URL")
+    sb_key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
+    if not (url and sb_key):
+        return
+    try:
+        requests.post(
+            f"{url}/rest/v1/llm_estimate_cache?on_conflict=cache_key",
+            params={"on_conflict": "cache_key"},
+            headers={
+                "apikey": sb_key,
+                "Authorization": f"Bearer {sb_key}",
+                "Content-Type": "application/json",
+                "Prefer": "resolution=merge-duplicates,return=minimal",
+            },
+            data=json.dumps({"cache_key": key, "kind": kind, "model": model, "output": output}),
+            timeout=10,
+        )
+    except Exception as e:
+        print(f"  (enrich_estimation: cache_put failed: {e})", file=sys.stderr)
 
 MODEL = "claude-haiku-4-5-20251001"
 
@@ -247,9 +305,21 @@ def _build_payload(
     return payload
 
 
-def _call_llm(payload: dict[str, Any]) -> dict[str, Any] | None:
+def _call_llm(payload: dict[str, Any], *, kind: str = "day", system_prompt: str | None = None, tool_schema: dict | None = None, tool_name: str | None = None) -> dict[str, Any] | None:
     """One-shot call to Haiku 4.5. Returns parsed tool input or None on any
-    failure (missing key, SDK absent, API error, malformed response)."""
+    failure (missing key, SDK absent, API error, malformed response).
+
+    Cached in `llm_estimate_cache` (Supabase) keyed by (kind, model, payload):
+    repeat cron ticks on the same input read the cached output instead of
+    re-paying Haiku.
+    """
+    sp = system_prompt or SYSTEM_PROMPT
+    ts = tool_schema or TOOL_SCHEMA
+    tn = tool_name or "estimate_micros"
+    ck = _cache_key(kind, MODEL, payload)
+    cached = _cache_get(ck)
+    if cached is not None:
+        return cached
     key = os.environ.get("ANTHROPIC_API_KEY")
     if not key:
         return None
@@ -263,9 +333,9 @@ def _call_llm(payload: dict[str, Any]) -> dict[str, Any] | None:
         resp = client.messages.create(
             model=MODEL,
             max_tokens=600,
-            system=SYSTEM_PROMPT,
-            tools=[TOOL_SCHEMA],
-            tool_choice={"type": "tool", "name": "estimate_micros"},
+            system=sp,
+            tools=[ts],
+            tool_choice={"type": "tool", "name": tn},
             messages=[
                 {
                     "role": "user",
@@ -276,13 +346,13 @@ def _call_llm(payload: dict[str, Any]) -> dict[str, Any] | None:
         for block in resp.content or []:
             if (
                 getattr(block, "type", None) == "tool_use"
-                and getattr(block, "name", None) == "estimate_micros"
+                and getattr(block, "name", None) == tn
             ):
                 raw = block.input
-                if isinstance(raw, dict):
-                    return raw
-                if isinstance(raw, str):
-                    return json.loads(raw)
+                parsed = raw if isinstance(raw, dict) else (json.loads(raw) if isinstance(raw, str) else None)
+                if parsed is not None:
+                    _cache_put(ck, kind, MODEL, parsed)
+                    return parsed
         return None
     except Exception as e:
         print(f"  (enrich_estimation: LLM call failed: {e})", file=sys.stderr)
@@ -413,20 +483,6 @@ def estimate_slot_micros(
     if cache_key in _SLOT_CACHE:
         return _SLOT_CACHE[cache_key]
 
-    key = os.environ.get("ANTHROPIC_API_KEY")
-    if not key:
-        _SLOT_CACHE[cache_key] = {}
-        return {}
-    try:
-        import anthropic
-    except ImportError:
-        print(
-            "  (enrich_estimation: anthropic SDK not installed -- slot estimator skipped)",
-            file=sys.stderr,
-        )
-        _SLOT_CACHE[cache_key] = {}
-        return {}
-
     payload = {
         "meal_slot": meal_slot,
         "kcal": slot_kcal,
@@ -434,41 +490,14 @@ def estimate_slot_micros(
         "carb_g": slot_carb,
         "fat_g": slot_fat,
     }
-    try:
-        client = anthropic.Anthropic(api_key=key)
-        resp = client.messages.create(
-            model=MODEL,
-            max_tokens=400,
-            system=SLOT_SYSTEM_PROMPT,
-            tools=[SLOT_TOOL_SCHEMA],
-            tool_choice={"type": "tool", "name": "estimate_slot_micros"},
-            messages=[
-                {
-                    "role": "user",
-                    "content": json.dumps(payload, ensure_ascii=False, default=str),
-                }
-            ],
-        )
-        raw: dict[str, Any] | None = None
-        for block in resp.content or []:
-            if (
-                getattr(block, "type", None) == "tool_use"
-                and getattr(block, "name", None) == "estimate_slot_micros"
-            ):
-                inp = block.input
-                if isinstance(inp, dict):
-                    raw = inp
-                elif isinstance(inp, str):
-                    raw = json.loads(inp)
-                break
-        if raw is None:
-            _SLOT_CACHE[cache_key] = {}
-            return {}
-    except Exception as e:
-        print(
-            f"  (enrich_estimation: slot LLM call failed [{date_iso}/{meal_slot}]: {e})",
-            file=sys.stderr,
-        )
+    raw = _call_llm(
+        payload,
+        kind="slot",
+        system_prompt=SLOT_SYSTEM_PROMPT,
+        tool_schema=SLOT_TOOL_SCHEMA,
+        tool_name="estimate_slot_micros",
+    )
+    if raw is None:
         _SLOT_CACHE[cache_key] = {}
         return {}
 
@@ -615,20 +644,6 @@ def estimate_item_micros(
     if cache_key in _ITEM_CACHE:
         return _ITEM_CACHE[cache_key]
 
-    key = os.environ.get("ANTHROPIC_API_KEY")
-    if not key:
-        _ITEM_CACHE[cache_key] = {}
-        return {}
-    try:
-        import anthropic
-    except ImportError:
-        print(
-            "  (enrich_estimation: anthropic SDK not installed -- item estimator skipped)",
-            file=sys.stderr,
-        )
-        _ITEM_CACHE[cache_key] = {}
-        return {}
-
     payload = {
         "name": safe_name,
         "amount_g": amount_g,
@@ -637,42 +652,15 @@ def estimate_item_micros(
         "carb_g": carb_g,
         "fat_g": fat_g,
     }
-    try:
-        client = anthropic.Anthropic(api_key=key)
-        _ITEM_CALL_COUNT += 1
-        resp = client.messages.create(
-            model=MODEL,
-            max_tokens=300,
-            system=ITEM_SYSTEM_PROMPT,
-            tools=[ITEM_TOOL_SCHEMA],
-            tool_choice={"type": "tool", "name": "estimate_item_micros"},
-            messages=[
-                {
-                    "role": "user",
-                    "content": json.dumps(payload, ensure_ascii=False, default=str),
-                }
-            ],
-        )
-        raw: dict[str, Any] | None = None
-        for block in resp.content or []:
-            if (
-                getattr(block, "type", None) == "tool_use"
-                and getattr(block, "name", None) == "estimate_item_micros"
-            ):
-                inp = block.input
-                if isinstance(inp, dict):
-                    raw = inp
-                elif isinstance(inp, str):
-                    raw = json.loads(inp)
-                break
-        if raw is None:
-            _ITEM_CACHE[cache_key] = {}
-            return {}
-    except Exception as e:
-        print(
-            f"  (enrich_estimation: item LLM call failed [{safe_name[:40]}]: {e})",
-            file=sys.stderr,
-        )
+    _ITEM_CALL_COUNT += 1
+    raw = _call_llm(
+        payload,
+        kind="item",
+        system_prompt=ITEM_SYSTEM_PROMPT,
+        tool_schema=ITEM_TOOL_SCHEMA,
+        tool_name="estimate_item_micros",
+    )
+    if raw is None:
         _ITEM_CACHE[cache_key] = {}
         return {}
 

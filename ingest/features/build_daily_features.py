@@ -1146,6 +1146,48 @@ def parse_args() -> argparse.Namespace:
     return p.parse_args()
 
 
+def _max_ts(table: str, col: str = "ingested_at") -> str | None:
+    try:
+        rows = sb_get(table, {"select": col, "order": f"{col}.desc.nullslast", "limit": "1"})
+    except Exception:
+        return None
+    if not rows:
+        return None
+    return rows[0].get(col)
+
+
+def _features_fail_fast() -> bool:
+    """Return True if we should skip the run (no new ingest since last features build).
+
+    Compares max(ingested_at) across source tables vs max(computed_at) on
+    daily_features. Bypassed when FORCE_REBUILD=1 or --since/--force is set.
+    """
+    if os.environ.get("FORCE_REBUILD"):
+        return False
+    last_features = _max_ts("daily_features", "computed_at")
+    if last_features is None:
+        return False  # never built, definitely run
+    sources = (
+        ("yazio_day", "ingested_at"),
+        ("yazio_micronutrient_daily", "ingested_at"),
+        ("yazio_food_item_daily", "ingested_at"),
+        ("withings_measurement", "ingested_at"),
+        ("withings_activity_daily", "ingested_at"),
+        ("huawei_daily", None),  # no ingested_at column; skip
+        ("wegovy_injection", "logged_at"),
+    )
+    latest_source: str | None = None
+    for table, col in sources:
+        if col is None:
+            continue
+        ts = _max_ts(table, col)
+        if ts and (latest_source is None or ts > latest_source):
+            latest_source = ts
+    if latest_source is None:
+        return False
+    return latest_source <= last_features
+
+
 def main() -> None:
     args = parse_args()
     today = datetime.now(timezone.utc).date()
@@ -1153,6 +1195,9 @@ def main() -> None:
         since = date.fromisoformat(args.since)
     else:
         since = today - timedelta(days=120)
+        if _features_fail_fast():
+            print("[features] no new source data since last build, skip", file=sys.stderr)
+            return
 
     print(f"[features] since={since} today={today}", file=sys.stderr)
 
