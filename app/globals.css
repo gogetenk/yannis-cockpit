@@ -698,6 +698,9 @@
       margin: 0;
       white-space: nowrap;
       min-width: 0;
+      max-width: 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
     .tile-figure .unit {
       font-size: 12px;
