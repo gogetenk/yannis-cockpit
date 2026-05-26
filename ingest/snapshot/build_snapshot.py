@@ -390,10 +390,15 @@ def build_wegovy(today: date, injections: list[dict] | None = None) -> dict:
     cur_end_week = theoretical_current["weeks"][1] if theoretical_current["weeks"][1] is not None else week
     next_in_weeks = max(0, round(cur_end_week - week))
 
-    # Last injection: prefer real logged data over weekday assumption.
+    # Last injection: the source of truth is the most recent row in
+    # wegovy_injection — never assume a weekday. Real logged date drives
+    # last_injection_date, next_injection_date (= last + 7j), days_since,
+    # days_to_next (signed: negative means overdue), and the weekday label.
     last_injection_date: date | None = None
+    next_injection_date: date | None = None
     current_dose_mg = theoretical_current["dose_mg"]
     is_overdue = False
+    last_injection_unknown = False
     if injections:
         try:
             last_injection_date = date.fromisoformat(injections[0]["date"])
@@ -401,24 +406,29 @@ def build_wegovy(today: date, injections: list[dict] | None = None) -> dict:
         except Exception:
             last_injection_date = None
 
+    weekday_fr = ["lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche"]
+
     if last_injection_date is not None:
+        next_injection_date = last_injection_date + timedelta(days=7)
         days_since_inj = (today - last_injection_date).days
-        days_to_next_inj = max(0, 7 - days_since_inj)
-        is_overdue = days_since_inj > 7
+        days_to_next_inj = (next_injection_date - today).days
+        is_overdue = days_since_inj > 8
+        last_inj_label = weekday_fr[last_injection_date.weekday()]
     else:
-        # Fallback: configured weekday cadence.
+        # Fallback: configured weekday cadence — flag the front-end that this
+        # is an assumption, not a logged truth.
+        print(
+            "  warn: wegovy_injection empty, falling back to weekday cadence "
+            f"(WEGOVY_INJECTION_WEEKDAY={WEGOVY_INJECTION_WEEKDAY})",
+            file=sys.stderr,
+        )
+        last_injection_unknown = True
         today_weekday = today.weekday()
         days_since_inj = (today_weekday - WEGOVY_INJECTION_WEEKDAY) % 7
         days_to_next_inj = (7 - days_since_inj) % 7
         if days_to_next_inj == 0:
             days_to_next_inj = 7
-
-    if days_since_inj == 0:
-        last_inj_label = "aujourd'hui"
-    elif days_since_inj == 1:
-        last_inj_label = "hier"
-    else:
-        last_inj_label = f"il y a {days_since_inj} j"
+        last_inj_label = weekday_fr[WEGOVY_INJECTION_WEEKDAY]
 
     return {
         "day_since_start": day,
@@ -431,6 +441,8 @@ def build_wegovy(today: date, injections: list[dict] | None = None) -> dict:
         "days_to_next_injection": days_to_next_inj,
         "last_injection_label": last_inj_label,
         "last_injection_date": last_injection_date.isoformat() if last_injection_date else None,
+        "next_injection_date": next_injection_date.isoformat() if next_injection_date else None,
+        "last_injection_unknown": last_injection_unknown,
         "is_overdue": is_overdue,
     }
 
@@ -454,18 +466,27 @@ def build_signals(yazio: list[dict], measurements: list[dict], activity: list[di
     if wt_start and wt_end:
         delta_kg = wt_end[0] - float(wt_start["value"])
         deficit_per_day = -(delta_kg * 6500) / 28  # positive when losing
-        watch = deficit_per_day > 800  # >800 kcal/j = perte trop rapide
+        # 3 tiers: ok 100-800 kcal/j · watch 800-1000 OU 0-100 · alert >1000 OU surplus
+        if deficit_per_day > 1000 or deficit_per_day < 0:
+            status = "alert"
+            label = "surplus calorique" if deficit_per_day < 0 else "perte trop rapide"
+        elif deficit_per_day > 800 or deficit_per_day < 100:
+            status = "watch"
+            label = "trop rapide" if deficit_per_day > 800 else "perte trop lente"
+        else:
+            status = "ok"
+            label = "perte en cours"
         title = "Déficit calorique" if deficit_per_day >= 0 else "Surplus calorique"
-        label = "trop rapide" if watch else ("perte en cours" if deficit_per_day > 100 else "stable")
+        spark_color = "rouge" if status == "alert" else ("ambre" if status == "watch" else "sage")
         out.append({
             "id": "deficit",
             "title": title,
             "sub": "",
             "value": f"{abs(int(round(deficit_per_day))):,}".replace(",", " "),
             "unit": "kcal/j",
-            "status": "watch" if watch else "ok",
+            "status": status,
             "status_label": label,
-            "spark": {"kind": "line", "color": "sage", "points": []},
+            "spark": {"kind": "line", "color": spark_color, "points": []},
         })
 
     # --- Proteins / LBM ---
@@ -483,16 +504,27 @@ def build_signals(yazio: list[dict], measurements: list[dict], activity: list[di
         lbm = float(lbm_row["value"])
         avg_protein = sum(proteins) / len(proteins)
         target_g = round(lbm * 2.0)  # 2.0 g/kg LBM target
-        watch = avg_protein < target_g * 0.85
+        # 3 tiers: ok >=cible · watch 80-100% · alert <80%
+        ratio = avg_protein / target_g if target_g else 1
+        if ratio < 0.80:
+            status = "alert"
+            label = "sous 80 % de la cible"
+        elif ratio < 1.0:
+            status = "watch"
+            label = "à surveiller"
+        else:
+            status = "ok"
+            label = "conforme"
+        spark_color = "rouge" if status == "alert" else ("ambre" if status == "watch" else "sage")
         out.append({
             "id": "protein",
             "title": "Protéines",
             "sub": f"cible {target_g} g/j",
             "value": str(int(round(avg_protein))),
             "unit": "g/j",
-            "status": "watch" if watch else "ok",
-            "status_label": "à surveiller" if watch else "conforme",
-            "spark": _bar_spark(proteins[-13:], "ambre" if watch else "sage"),
+            "status": status,
+            "status_label": label,
+            "spark": _bar_spark(proteins[-13:], spark_color),
         })
 
     # Wegovy response z-score removed: hero already conveys "X kg en avance/retard
@@ -504,8 +536,21 @@ def build_signals(yazio: list[dict], measurements: list[dict], activity: list[di
         last7 = sleep_pts[-7:]
         avg_min = sum(v for _, v in last7) / len(last7)
         # Weekly cumulative delta vs 7h30/nuit target. Positive = surplus.
-        delta_h = (avg_min - 450) * len(last7) / 60
-        watch = avg_min < 400  # <6h40 = alerte
+        delta_min_total = (avg_min - 450) * len(last7)  # minutes/semaine (signed)
+        delta_h = delta_min_total / 60
+        # Dette = écart NÉGATIF cumulé (delta_min_total < 0)
+        debt_min = -delta_min_total if delta_min_total < 0 else 0
+        # 3 tiers sur dette/semaine: ok <=30min · watch 30-120min · alert >120min
+        if debt_min > 120:
+            status = "alert"
+            label = "dette > 2 h / sem"
+        elif debt_min > 30:
+            status = "watch"
+            label = "à surveiller"
+        else:
+            status = "ok"
+            label = "conforme"
+        spark_color = "rouge" if status == "alert" else ("ambre" if status == "watch" else "sage")
         sign = "+" if delta_h >= 0 else "−"
         out.append({
             "id": "sleep",
@@ -513,25 +558,35 @@ def build_signals(yazio: list[dict], measurements: list[dict], activity: list[di
             "sub": "optimum 7 h 30/nuit",
             "value": f"{sign}{abs(int(round(delta_h)))} h",
             "unit": "/ semaine",
-            "status": "watch" if watch else "ok",
-            "status_label": "à surveiller" if watch else "conforme",
-            "spark": _bar_spark([v for _, v in last7], "ambre" if watch else "sage"),
+            "status": status,
+            "status_label": label,
+            "spark": _bar_spark([v for _, v in last7], spark_color),
         })
 
     # --- Steps / activity ---
     recent_act = [a for a in activity if a.get("steps") and date.fromisoformat(a["date"]) >= today - timedelta(days=28)]
     if recent_act:
         avg_steps = sum(int(a["steps"]) for a in recent_act) / len(recent_act)
-        watch = avg_steps < 9000
+        # 3 tiers: ok >=10k · watch 7-10k · alert <7k
+        if avg_steps < 7000:
+            status = "alert"
+            label = "sous 7 k pas/j"
+        elif avg_steps < 10000:
+            status = "watch"
+            label = "à surveiller"
+        else:
+            status = "ok"
+            label = "conforme"
+        spark_color = "rouge" if status == "alert" else ("ambre" if status == "watch" else "sage")
         out.append({
             "id": "activity",
             "title": "Activité",
             "sub": "cible 10 k/j",
             "value": f"{int(round(avg_steps)):,}".replace(",", " "),
             "unit": "pas/j",
-            "status": "watch" if watch else "ok",
-            "status_label": "à surveiller" if watch else "conforme",
-            "spark": _bar_spark([int(a["steps"]) for a in recent_act[-14:]], "ambre" if watch else "sage"),
+            "status": status,
+            "status_label": label,
+            "spark": _bar_spark([int(a["steps"]) for a in recent_act[-14:]], spark_color),
         })
 
     # --- Stress chronique (Huawei TruSeen) ---
@@ -549,16 +604,26 @@ def build_signals(yazio: list[dict], measurements: list[dict], activity: list[di
             avg7 = sum(s7) / len(s7)
             avg90 = sum(s90) / len(s90)
             drift = (avg7 - avg90) / avg90 if avg90 > 0 else 0
-            watch = drift > 0.15
+            # 3 tiers: ok <=5% · watch 5-15% · alert >15%
+            if drift > 0.15:
+                status = "alert"
+                label = "drift > 15 %"
+            elif drift > 0.05:
+                status = "watch"
+                label = "à surveiller"
+            else:
+                status = "ok"
+                label = "conforme"
+            spark_color = "rouge" if status == "alert" else ("ambre" if status == "watch" else "sage")
             out.append({
                 "id": "stress_chronic",
                 "title": "Stress chronique",
                 "sub": "vs baseline 90 j",
                 "value": str(int(round(avg7))),
                 "unit": "/100",
-                "status": "watch" if watch else "ok",
-                "status_label": "à surveiller" if watch else "conforme",
-                "spark": _bar_spark([int(round(v)) for v in s7[-14:]], "ambre" if watch else "sage"),
+                "status": status,
+                "status_label": label,
+                "spark": _bar_spark([int(round(v)) for v in s7[-14:]], spark_color),
             })
 
     # --- Alcool (cumul 7j vs OMS ≤98 g/sem) ---
@@ -587,7 +652,17 @@ def build_signals(yazio: list[dict], measurements: list[dict], activity: list[di
             float(r.get("alcohol_g") or 0) if r.get("is_logged") else 0
             for r in df_sorted
         ]
-        watch = total_7d > 98
+        # 3 tiers: ok <=98g · watch 98-150g · alert >150g
+        if total_7d > 150:
+            status = "alert"
+            label = "au-dessus du plafond"
+        elif total_7d > 98:
+            status = "watch"
+            label = "à surveiller"
+        else:
+            status = "ok"
+            label = "conforme"
+        spark_color = "rouge" if status == "alert" else ("ambre" if status == "watch" else "sage")
         coverage_sub = "cible OMS ≤ 98 g/sem"
         if len(rows_7d_logged) < len(rows_7d_all) and len(rows_7d_all) > 0:
             coverage_sub = (
@@ -600,9 +675,9 @@ def build_signals(yazio: list[dict], measurements: list[dict], activity: list[di
             "sub": coverage_sub,
             "value": f"{int(round(total_7d))}",
             "unit": "g / 7 j",
-            "status": "watch" if watch else "ok",
-            "status_label": "à surveiller" if watch else "conforme",
-            "spark": _bar_spark(daily_values_14d, "ambre" if watch else "sage"),
+            "status": status,
+            "status_label": label,
+            "spark": _bar_spark(daily_values_14d, spark_color),
         })
 
     # --- Tension (SBP/DBP moyenne 28j) ---
@@ -624,13 +699,17 @@ def build_signals(yazio: list[dict], measurements: list[dict], activity: list[di
     if sbp_vals and dbp_vals:
         avg_sbp = sum(sbp_vals) / len(sbp_vals)
         avg_dbp = sum(dbp_vals) / len(dbp_vals)
-        watch = avg_sbp >= 130 or avg_dbp >= 85
-        if watch:
+        # 3 tiers: ok <120/80 · watch 120-129/80-84 · alert >=130/85
+        if avg_sbp >= 130 or avg_dbp >= 85:
+            status = "alert"
             label = "élevée"
         elif avg_sbp >= 120 or avg_dbp >= 80:
+            status = "watch"
             label = "normale haute"
         else:
+            status = "ok"
             label = "optimale"
+        spark_color = "rouge" if status == "alert" else ("ambre" if status == "watch" else "sage")
         chrono = sorted(
             [(r["date"], r.get("sbp")) for r in bp_rows if r.get("sbp") is not None],
             key=lambda x: x[0],
@@ -642,9 +721,9 @@ def build_signals(yazio: list[dict], measurements: list[dict], activity: list[di
             "sub": "opti < 120/80 · max < 130/85",
             "value": f"{int(round(avg_sbp))} / {int(round(avg_dbp))}",
             "unit": "mmHg moy 28 j",
-            "status": "watch" if watch else "ok",
+            "status": status,
             "status_label": label,
-            "spark": _bar_spark(spark_vals, "ambre" if watch else "sage"),
+            "spark": _bar_spark(spark_vals, spark_color),
         })
 
     # --- Saturés %E (médiane 14j vs AHA ≤ 6%E pour profil cardio) ---
@@ -672,15 +751,17 @@ def build_signals(yazio: list[dict], measurements: list[dict], activity: list[di
             sat_values[n // 2] if n % 2 else (sat_values[n // 2 - 1] + sat_values[n // 2]) / 2
         )
         n_high = sum(1 for v in sat_values if v > 10)
-        if median_sat <= 6:
-            status = "ok"
-            label = "conforme"
-        elif median_sat <= 10:
-            status = "ok"
+        # 3 tiers: ok <=6 · watch 6-10 · alert >10
+        if median_sat > 10:
+            status = "alert"
+            label = f"{n_high}/14 j > 10 %E"
+        elif median_sat > 6:
+            status = "watch"
             label = "au-dessus de la cible AHA"
         else:
-            status = "watch"
-            label = f"{n_high}/14 j > 10 %E"
+            status = "ok"
+            label = "conforme"
+        spark_color = "rouge" if status == "alert" else ("ambre" if status == "watch" else "sage")
         sat_sorted_chrono = sorted(sat_logged, key=lambda r: r["date"])
         spark_vals = [float(r["pct_e_sat"]) for r in sat_sorted_chrono]
         out.append({
@@ -691,7 +772,7 @@ def build_signals(yazio: list[dict], measurements: list[dict], activity: list[di
             "unit": "%E médian 14 j",
             "status": status,
             "status_label": label,
-            "spark": _bar_spark(spark_vals, "ambre" if status == "watch" else "sage"),
+            "spark": _bar_spark(spark_vals, spark_color),
         })
 
     return out

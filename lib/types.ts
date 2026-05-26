@@ -38,7 +38,7 @@ export interface WegovyTitration {
   is_overdue?: boolean;
 }
 
-export type SignalKind = "ok" | "watch";
+export type SignalKind = "ok" | "watch" | "alert";
 
 export interface Signal {
   id: string;
@@ -52,8 +52,8 @@ export interface Signal {
 }
 
 export type SignalSpark =
-  | { kind: "line"; points: [number, number][]; color: "sage" | "ambre"; end_dot?: boolean }
-  | { kind: "bars"; values: number[]; dim_indices?: number[]; color: "sage" | "ambre" };
+  | { kind: "line"; points: [number, number][]; color: "sage" | "ambre" | "rouge"; end_dot?: boolean }
+  | { kind: "bars"; values: number[]; dim_indices?: number[]; color: "sage" | "ambre" | "rouge" };
 
 export interface SubAge {
   key: "cardio" | "blood" | "composition" | "skeleton";

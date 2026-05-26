@@ -3,7 +3,12 @@ import type { Signal, SignalSpark } from "@/lib/types";
 interface Props { signals: Signal[]; action?: string | null }
 
 function Spark({ spark }: { spark: SignalSpark }) {
-  const colorVar = spark.color === "ambre" ? "var(--ambre-brule)" : "var(--deep-sage)";
+  const colorVar =
+    spark.color === "rouge"
+      ? "var(--alert-red)"
+      : spark.color === "ambre"
+        ? "var(--ambre-brule)"
+        : "var(--deep-sage)";
   if (spark.kind === "line") {
     const d = spark.points.map((p, i) => `${i === 0 ? "M" : "L"} ${p[0]} ${p[1]}`).join(" ");
     const last = spark.points[spark.points.length - 1];
@@ -44,9 +49,22 @@ export function SignalsSection({ signals, action }: Props) {
         <h3 id="signals-heading">Signaux</h3>
       </header>
       <ol className="signals-list">
-        {signals.map(s => (
-          <li key={s.id} className={"signal" + (s.status === "watch" ? " signal--watch" : "")}>
-            <span className="signal-dot" aria-label={s.status === "watch" ? "à surveiller" : "ok"}></span>
+        {signals.map(s => {
+          const statusClass =
+            s.status === "alert"
+              ? " signal--alert"
+              : s.status === "watch"
+                ? " signal--watch"
+                : "";
+          const dotLabel =
+            s.status === "alert"
+              ? "au-dessus du plafond"
+              : s.status === "watch"
+                ? "à surveiller"
+                : "ok";
+          return (
+          <li key={s.id} className={"signal" + statusClass}>
+            <span className="signal-dot" aria-label={dotLabel}></span>
             <div className="signal-body">
               <span className="signal-title">{s.title}</span>
               <span className="signal-sub">{s.sub}</span>
@@ -57,7 +75,8 @@ export function SignalsSection({ signals, action }: Props) {
             <Spark spark={s.spark} />
             <span className="signal-status">{s.status_label}</span>
           </li>
-        ))}
+          );
+        })}
       </ol>
       {action && (
         <div className="action-today" role="note">
