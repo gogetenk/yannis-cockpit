@@ -60,7 +60,7 @@ export function WegovyBanner({ wegovy }: Props) {
   return (
     <Link href="/detail/wegovy" className="wegovy wegovy--link" aria-labelledby="wegovy-label">
       <div className="wegovy-top">
-        <span className="label label--ink" id="wegovy-label">Wegovy · J + {wegovy.day_since_start} <span className="card-chevron" aria-hidden>›</span></span>
+        <span className="label label--ink" id="wegovy-label">Wegovy <span className="card-chevron" aria-hidden>›</span></span>
         <span className="now"><strong>{fmtDose(wegovy.current_dose_mg)} mg</strong> · {topRight}</span>
       </div>
 
