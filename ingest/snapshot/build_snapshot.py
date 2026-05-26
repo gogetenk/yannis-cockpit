@@ -1152,7 +1152,7 @@ def lifetime_cv_risk_full(markers: dict, age_yr: float, bmi: float | None = None
     return 1, "tous optimaux", None
 
 
-def build_bio_age(measurements: list[dict], activity: list[dict] | None = None, labs: tuple | None = None, hc_records: list[dict] | None = None, huawei_daily: list[dict] | None = None, today: date | None = None) -> dict:
+def build_bio_age(measurements: list[dict], activity: list[dict] | None = None, labs: tuple | None = None, hc_records: list[dict] | None = None, huawei_daily: list[dict] | None = None, today: date | None = None, panels: list[dict] | None = None, results: list[dict] | None = None) -> dict:
     """Bio age composite from what we can actually measure. Blood is held at
     chrono since labs are not ingested yet. Each subage rounds to nearest yr."""
     chrono = 35
@@ -1240,8 +1240,102 @@ def build_bio_age(measurements: list[dict], activity: list[dict] | None = None, 
             {"key": "composition", "label": "Composition", "value": composition_age, "off": composition_age > chrono + 1},
             {"key": "skeleton", "label": "Squelette", "value": skeleton_age, "off": skeleton_age > chrono + 5},
         ],
-        "trajectory_12m": _composite_history(measurements, chrono),
+        "trajectory_12m": (
+            _phenoage_history(panels or [], results or [], chrono)
+            if panels else _composite_history(measurements, chrono)
+        ),
     }
+
+
+# NHANES population medians for a healthy male ~35 yr. Used to impute
+# missing biomarkers when a panel is partial (e.g. baseline Al Borg with
+# only 2/9 PhenoAge markers). Lets us compute a reasonable estimate so
+# the trajectory has a real anchor point instead of a chrono-fake.
+PHENOAGE_DEFAULTS = {
+    "Albumin": 4.4,    # g/dL
+    "Creat": 0.95,     # mg/dL
+    "Glu": 95.0,       # mg/dL
+    "hsCRP": 1.0,      # mg/L
+    "Lymph_pct": 30.0, # %
+    "MCV": 90.0,       # fL
+    "RDW": 13.0,       # %
+    "ALP": 70.0,       # U/L
+    "WBC": 6.5,        # 10^9/L
+}
+
+
+def phenoage_levine_partial(markers: dict, chrono_yr: float) -> tuple[float | None, int]:
+    """Compute PhenoAge using available markers + population defaults for the rest.
+
+    Returns (phenoage, n_real_markers). If no PhenoAge marker is present at all,
+    returns (None, 0). With n_real_markers < 5 the estimate is approximate
+    and should be flagged 'partial' downstream.
+    """
+    def get(code: str) -> float | None:
+        r = markers.get(code)
+        return float(r["value_num"]) if r and r.get("value_num") is not None else None
+
+    real = {k: get(k) for k in PHENOAGE_DEFAULTS}
+    n_real = sum(1 for v in real.values() if v is not None)
+    if n_real == 0:
+        return None, 0
+    merged = {k: (real[k] if real[k] is not None else PHENOAGE_DEFAULTS[k]) for k in PHENOAGE_DEFAULTS}
+
+    albumin_g_L = merged["Albumin"] * 10
+    creat_umol_L = merged["Creat"] * 88.4
+    glu_mmol_L = merged["Glu"] / 18.018
+    crp_mg_dL = merged["hsCRP"] / 10
+    ln_crp = math.log(max(crp_mg_dL, 1e-4))
+
+    xb = (-19.907
+          - 0.0336 * albumin_g_L
+          + 0.0095 * creat_umol_L
+          + 0.1953 * glu_mmol_L
+          + 0.0954 * ln_crp
+          - 0.0120 * merged["Lymph_pct"]
+          + 0.0268 * merged["MCV"]
+          + 0.3306 * merged["RDW"]
+          + 0.00188 * merged["ALP"]
+          + 0.0554 * merged["WBC"]
+          + 0.0804 * chrono_yr)
+    g = 0.0076927
+    M = 1 - math.exp(-math.exp(xb) * (math.exp(g * 120) - 1) / g)
+    return 141.50225 + math.log(-0.00553 * math.log(max(1 - M, 1e-9))) / 0.090165, n_real
+
+
+def _phenoage_history(panels: list[dict], results: list[dict], chrono: int) -> list[dict]:
+    """Real PhenoAge trajectory: one point per blood panel (oldest first).
+
+    Returns [{month: 'jj mmm aa', value: phenoage, partial: bool}, ...].
+    Falls back to a single-point chrono baseline if no panel has any usable
+    PhenoAge marker.
+    """
+    if not panels:
+        return []
+    # Group results by panel_id.
+    by_panel: dict[str, dict[str, dict]] = {p["id"]: {} for p in panels}
+    for r in results:
+        pid = r.get("panel_id")
+        if pid in by_panel:
+            by_panel[pid][r["marker_code"]] = r
+
+    out: list[dict] = []
+    for p in sorted(panels, key=lambda x: x["collected_at"]):
+        coll = p["collected_at"][:10]
+        coll_d = date.fromisoformat(coll)
+        markers = by_panel.get(p["id"], {})
+        # Chrono at panel time (approx — close enough on yearly scale).
+        chrono_at = chrono + (coll_d - date.today()).days / 365.25
+        pa, n_real = phenoage_levine_partial(markers, chrono_at)
+        if pa is None:
+            continue
+        label = f"{coll_d.day} {MONTHS_FR[coll_d.month - 1][:3]} '{coll_d.year % 100:02d}"
+        out.append({
+            "month": label,
+            "value": int(round(pa)),
+            "partial": n_real < 5,
+        })
+    return out
 
 
 def _composite_history(measurements: list[dict], chrono: int) -> list[dict]:
@@ -2251,7 +2345,7 @@ def main() -> None:
         "wegovy": build_wegovy(today, injections),
         "signals": sigs,
         "action_today": build_action_today(sigs),
-        "bio_age": build_bio_age(measurements, activity, labs, hc_records, huawei_daily, today),
+        "bio_age": build_bio_age(measurements, activity, labs, hc_records, huawei_daily, today, panels, results),
         "biology": build_biology(panels, results, today, measurements),
         "pillars": build_pillars(yazio, measurements, activity, hc_records, today),
         "pillar_detail": pillar_detail,
