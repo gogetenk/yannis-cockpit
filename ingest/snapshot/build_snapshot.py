@@ -46,7 +46,7 @@ def vo2max_uth(rest_hr_min: float, age: float = CHRONO_AGE) -> float:
     hr_max = 208 - 0.7 * age
     return round(15.3 * hr_max / rest_hr_min, 1)
 
-WEGOVY_START_ISO = "2026-04-14"  # Yannis' first injection (J1).
+WEGOVY_START_ISO = "2026-04-11"  # Yannis' first injection (J1, Saturday).
 WEGOVY_INJECTION_WEEKDAY = 5  # Saturday (Mon=0..Sun=6). User-configured.
 WEGOVY_LADDER = [
     {"dose_mg": 0.25, "weeks": (0, 4)},
