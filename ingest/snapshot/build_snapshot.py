@@ -605,6 +605,48 @@ def build_signals(yazio: list[dict], measurements: list[dict], activity: list[di
             "spark": _bar_spark(daily_values_14d, "ambre" if watch else "sage"),
         })
 
+    # --- Tension (SBP/DBP moyenne 28j) ---
+    # Always-visible. Indépendant du logging alimentaire.
+    # Repères: <120/80 optimal, 120-129/80-84 normale haute, ≥130/85 watch.
+    try:
+        bp_rows = sb_get(
+            "daily_features",
+            {
+                "select": "date,sbp,dbp",
+                "order": "date.desc",
+                "limit": "28",
+            },
+        )
+    except Exception:
+        bp_rows = []
+    sbp_vals = [float(r["sbp"]) for r in bp_rows if r.get("sbp") is not None]
+    dbp_vals = [float(r["dbp"]) for r in bp_rows if r.get("dbp") is not None]
+    if sbp_vals and dbp_vals:
+        avg_sbp = sum(sbp_vals) / len(sbp_vals)
+        avg_dbp = sum(dbp_vals) / len(dbp_vals)
+        watch = avg_sbp >= 130 or avg_dbp >= 85
+        if watch:
+            label = "élevée"
+        elif avg_sbp >= 120 or avg_dbp >= 80:
+            label = "normale haute"
+        else:
+            label = "optimale"
+        chrono = sorted(
+            [(r["date"], r.get("sbp")) for r in bp_rows if r.get("sbp") is not None],
+            key=lambda x: x[0],
+        )
+        spark_vals = [float(v) for _, v in chrono[-14:]]
+        out.append({
+            "id": "blood_pressure",
+            "title": "Tension",
+            "sub": "opti < 120/80 · max < 130/85",
+            "value": f"{int(round(avg_sbp))} / {int(round(avg_dbp))}",
+            "unit": "mmHg moy 28 j",
+            "status": "watch" if watch else "ok",
+            "status_label": label,
+            "spark": _bar_spark(spark_vals, "ambre" if watch else "sage"),
+        })
+
     # --- Saturés %E (médiane 14j vs AHA ≤ 6%E pour profil cardio) ---
     # Always-visible signal (not an insight). Mensink-Katan: 5%E SFA -> PUFA
     # baisse LDL ~10 mg/dL. Pertinent en continu sans alert fatigue.
