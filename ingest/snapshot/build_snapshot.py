@@ -2193,15 +2193,14 @@ def build_detail_biology(panels: list[dict], results: list[dict], today: date, c
             "status_label": "Bilan à jour" if (today - coll).days < 180 else "À renouveler",
             "status_off": (today - coll).days >= 200,
         },
-        "trajectory": {
+        "trajectory": (lambda hist: {
             "x_label": "PhenoAge mesurée",
             "y_unit": "ans",
-            "y_min": max(20, int(pa) - 5),
-            "y_max": int(chrono_yr) + 10,
-            "points": ([{"date": fmt_date_fr(prior_coll), "value": chrono_yr}] if prior_coll else [])
-                + [{"date": fmt_date_fr(coll), "value": round(pa, 1)}],
+            "y_min": max(20, min(int(p["value"]) for p in hist) - 3) if hist else max(20, int(pa) - 5),
+            "y_max": max(int(chrono_yr) + 3, max(int(p["value"]) for p in hist) + 3) if hist else int(chrono_yr) + 10,
+            "points": [{"date": p["month"], "value": p["value"]} for p in hist] if hist else [{"date": fmt_date_fr(coll), "value": round(pa, 1)}],
             "target": {"value": chrono_yr, "label": f"chrono {int(chrono_yr)} ans"},
-        },
+        })(_phenoage_history(panels, results, int(chrono_yr))),
         "table": [],
         "subs": [],
         "method": [
