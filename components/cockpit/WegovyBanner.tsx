@@ -22,9 +22,14 @@ export function WegovyBanner({ wegovy }: Props) {
   const overdue = !!wegovy.is_overdue;
   const unknown = !!wegovy.last_injection_unknown;
   const showLogBtn = unknown || daysSince >= 6 || overdue;
-  const topRight = unknown
-    ? "dernière injection inconnue"
-    : `dernière ${wegovy.last_injection_label ?? "dose"} ${daysSince === 0 ? "(aujourd'hui)" : daysSince === 1 ? "(hier)" : `(il y a ${daysSince} j)`}`;
+  const nextLabel = daysToNext === 0
+    ? "aujourd'hui"
+    : daysToNext === 1
+      ? "demain"
+      : daysToNext < 0
+        ? `retard ${-daysToNext} j`
+        : `dans ${daysToNext} j`;
+  const topRight = unknown ? "log ta dernière injection" : nextLabel;
 
   async function logInjection(e: React.MouseEvent) {
     e.preventDefault();
@@ -95,14 +100,7 @@ export function WegovyBanner({ wegovy }: Props) {
 
       <div className="wegovy-foot">
         <span>
-          {unknown ? (
-            <>cadence inconnue · log ton injection · </>
-          ) : overdue ? (
-            <>injection en retard ({daysSince} j) · </>
-          ) : wegovy.days_to_next_injection !== undefined && (
-            <>prochaine injection {daysToNext === 0 ? "aujourd'hui" : daysToNext === 1 ? "demain" : daysToNext < 0 ? `il y a ${-daysToNext} j` : `dans ${daysToNext} j`} · </>
-          )}
-          prochaine titration · <strong>{fmtDose(wegovy.next_dose_mg)} mg</strong> dans {wegovy.next_in_weeks} sem.
+          → <strong>{fmtDose(wegovy.next_dose_mg)} mg</strong> dans {wegovy.next_in_weeks} sem.
         </span>
         {showLogBtn && (
           <button
