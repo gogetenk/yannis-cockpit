@@ -233,10 +233,11 @@ def weight_projected(t_weeks: float, tau: float = 18) -> float:
 
 
 def fit_personal_tau(current_kg: float, today_week: float) -> float:
-    """Single-point inverse Gompertz solve (legacy fallback).
+    """Single-point inverse Gompertz solve (early-days fallback only).
 
-    Kept for callers that have nothing but a single weight; the preferred
-    fit is `fit_personal_tau_history()`, which regresses over every weigh-in.
+    Production fit is `fit_personal_tau_history()` (least-squares over the
+    full weigh-in history). This single-point version is reserved for the
+    first few days post-J1 when there aren't enough samples to regress.
     Returns the cohort tau (18) if today_week too small or current_kg already
     ≤ asymptote."""
     if today_week < 2:
@@ -245,6 +246,75 @@ def fit_personal_tau(current_kg: float, today_week: float) -> float:
     if ratio <= 0 or ratio >= 1:
         return 18.0
     return today_week / math.pow(math.log(1 / ratio), 1 / GOMP_SHAPE)
+
+
+def fit_personal_tau_history(
+    measurements: list[dict],
+    start: date,
+    today: date,
+    *,
+    min_points: int = 5,
+) -> float | None:
+    """Least-squares Gompertz fit on every weigh-in since J1.
+
+    Algorithm C from the overnight bench: equal-weighted LS regression on
+    all weigh-ins, with asymp/start/shape held at the cohort values so
+    only tau is free to move. RMSE ~0.49 kg on the 44-pt history vs 0.74
+    for the single-point fit. Stability: ±0.5 kg on the latest weigh-in
+    only shifts ETA ±4 days (vs ±39 days for the single-point fit).
+
+    Returns None when there are <min_points weigh-ins (fall back to the
+    single-point solve in that case).
+    """
+    pts: list[tuple[float, float]] = []
+    for m in measurements:
+        if m.get("type_code") != 1:
+            continue
+        pos = m.get("position")
+        if pos not in (None, 0):
+            continue
+        try:
+            d_iso = m["ts"][:10]
+            t_days = (date.fromisoformat(d_iso) - start).days
+        except (TypeError, ValueError, KeyError):
+            continue
+        if t_days < 0 or date.fromisoformat(d_iso) > today:
+            continue
+        try:
+            kg = float(m["value"])
+        except (TypeError, ValueError):
+            continue
+        if not (40.0 < kg < 200.0):
+            continue
+        pts.append((t_days / 7.0, kg))
+    if len(pts) < min_points:
+        return None
+
+    asymp, start_kg, shape = ASYMPTOTE_KG, START_KG, GOMP_SHAPE
+
+    def residual(tau: float) -> float:
+        s = 0.0
+        for t, k in pts:
+            pred = asymp + (start_kg - asymp) * math.exp(-math.pow(t / tau, shape))
+            s += (pred - k) ** 2
+        return s
+
+    # Golden-section search on tau in a wide bracket — Gompertz residual is
+    # smooth and unimodal in tau for fixed shape/asymp/start.
+    a, b = 5.0, 60.0
+    phi = (math.sqrt(5.0) - 1.0) / 2.0
+    c = b - phi * (b - a)
+    d = a + phi * (b - a)
+    for _ in range(80):
+        if residual(c) < residual(d):
+            b = d
+        else:
+            a = c
+        c = b - phi * (b - a)
+        d = a + phi * (b - a)
+        if (b - a) < 1e-3:
+            break
+    return (a + b) / 2.0
 
 
 def smoothed_current_kg(measurements: list[dict], today: date, days: int = 7) -> float | None:
@@ -338,12 +408,17 @@ def build_hero(measurements: list[dict], today: date) -> dict:
     ideal = weight_ideal(today_week)
     delta = current_kg - ideal
     status_key, status_label = status_band(delta)
-    # ETA: fit tau on the latest raw weight, same as the frontend chart.
-    # Each new weigh-in updates current_kg → personal_tau → ETA, keeping
-    # text + projection curve + pin in sync. Smoothed is exposed only for
-    # informational use (e.g. tooltip).
+    # ETA: least-squares Gompertz fit on the FULL weigh-in history (algo C
+    # from the overnight bench, RMSE 0.49 vs 0.74 single-point, ETA jitter
+    # ±4 d vs ±39 d on ±0.5 kg). Each new weigh-in nudges tau slightly via
+    # the regression instead of swinging it on a single morning value.
+    # Falls back to the single-point solve only when fewer than 5 weigh-ins
+    # exist (very early post-J1).
     smoothed = smoothed_current_kg(measurements, today, 7) or current_kg
-    personal_tau = fit_personal_tau(current_kg, today_week)
+    personal_tau = (
+        fit_personal_tau_history(measurements, start, today)
+        or fit_personal_tau(current_kg, today_week)
+    )
     eta_week = None
     for w in [today_week + 0.5 * i for i in range(0, 400)]:
         if weight_projected(w, personal_tau) <= GOAL_KG:

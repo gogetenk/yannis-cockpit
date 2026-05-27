@@ -104,14 +104,19 @@ export function Hero({ hero }: Props) {
     return samples.join(" ");
   }, [weekToX, wToY, week_max, M.start_kg, M.asymptote_kg, M.tau_weeks, M.shape]);
 
-  // Fit tau on the LATEST raw weight (hero.current_kg) so each new weigh-in
-  // immediately nudges the projection. Backend ETA also uses raw current_kg
-  // (via fit_personal_tau on current_kg, not smoothed), so the pin X coord
-  // derived from `hero.eta_75kg` lands on this same curve.
-  const personalTau = useMemo(
-    () => fitTau(hero.current_kg, hero.today_week, M.start_kg, M.asymptote_kg, M.shape, M.tau_weeks),
-    [hero.current_kg, hero.today_week, M.start_kg, M.asymptote_kg, M.shape, M.tau_weeks]
-  );
+  // Prefer the backend-computed personal_tau (least-squares Gompertz fit
+  // on the full weigh-in history — algo C). The fit is stable (jitter
+  // ±4 d on ±0.5 kg vs ±39 d for the single-point inverse) and matches
+  // the same tau used by the backend ETA, so the projection curve, pin
+  // marker and ETA text all share one source of truth. Falls back to
+  // the single-point fit on hero.current_kg for legacy snapshots that
+  // didn't expose personal_tau.
+  const personalTau = useMemo(() => {
+    if (typeof hero.personal_tau === "number" && hero.personal_tau > 0) {
+      return hero.personal_tau;
+    }
+    return fitTau(hero.current_kg, hero.today_week, M.start_kg, M.asymptote_kg, M.shape, M.tau_weeks);
+  }, [hero.personal_tau, hero.current_kg, hero.today_week, M.start_kg, M.asymptote_kg, M.shape, M.tau_weeks]);
   const projectionPath = useMemo(() => {
     const samples: string[] = [];
     const start = hero.today_week;
