@@ -233,8 +233,12 @@ def weight_projected(t_weeks: float, tau: float = 18) -> float:
 
 
 def fit_personal_tau(current_kg: float, today_week: float) -> float:
-    """Solve Gompertz for tau given (today_week, current_kg).
-    Returns the cohort tau (18) if today_week too small or current_kg already ≤ asymptote."""
+    """Single-point inverse Gompertz solve (legacy fallback).
+
+    Kept for callers that have nothing but a single weight; the preferred
+    fit is `fit_personal_tau_history()`, which regresses over every weigh-in.
+    Returns the cohort tau (18) if today_week too small or current_kg already
+    ≤ asymptote."""
     if today_week < 2:
         return 18.0
     ratio = (current_kg - ASYMPTOTE_KG) / (START_KG - ASYMPTOTE_KG)
@@ -334,11 +338,12 @@ def build_hero(measurements: list[dict], today: date) -> dict:
     ideal = weight_ideal(today_week)
     delta = current_kg - ideal
     status_key, status_label = status_band(delta)
-    # ETA: re-fit tau on the smoothed current weight so the projection
-    # reflects YOUR actual trajectory, not the cohort mean. Use a 7-day
-    # rolling average to absorb daily hydration noise.
+    # ETA: fit tau on the latest raw weight, same as the frontend chart.
+    # Each new weigh-in updates current_kg → personal_tau → ETA, keeping
+    # text + projection curve + pin in sync. Smoothed is exposed only for
+    # informational use (e.g. tooltip).
     smoothed = smoothed_current_kg(measurements, today, 7) or current_kg
-    personal_tau = fit_personal_tau(smoothed, today_week)
+    personal_tau = fit_personal_tau(current_kg, today_week)
     eta_week = None
     for w in [today_week + 0.5 * i for i in range(0, 400)]:
         if weight_projected(w, personal_tau) <= GOAL_KG:
