@@ -1180,7 +1180,10 @@ def compute_zscores(rows: list[dict]) -> None:
                     row[key] = None
                     continue
                 m = sum(vals) / len(vals)
-                var = sum((x - m) ** 2 for x in vals) / len(vals)
+                # Bessel-corrected sample variance: vals is a sample of the
+                # user's distribution, not the full population. With min_n=14
+                # the bias was ~3.6 %, enough to inflate small z-scores.
+                var = sum((x - m) ** 2 for x in vals) / (len(vals) - 1)
                 sd = math.sqrt(var)
                 if sd < EPS:
                     row[key] = None

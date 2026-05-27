@@ -1347,7 +1347,9 @@ def _composite_history(measurements: list[dict], chrono: int) -> list[dict]:
         relevant_fat = next((m for m in measurements if m["type_code"] == 6 and date.fromisoformat(m["ts"][:10]) <= anchor), None)
         relevant_vo2 = next((m for m in measurements if m["type_code"] == 123 and date.fromisoformat(m["ts"][:10]) <= anchor), None)
         cardio = max(20, chrono - int(round((float(relevant_vo2["value"]) - 45) / 2))) if relevant_vo2 else chrono
-        composition = chrono + int(round((float(relevant_fat["value"]) - 16) / 2)) if relevant_fat else chrono
+        # Reference 22 % = Gallagher 2000 midpoint of healthy band 20-25 % for
+        # white males 30-39 yr. MUST stay in sync with build_bio_age (composition_age).
+        composition = chrono + int(round((withings_fat_pct_corrected(float(relevant_fat["value"])) - 22) / 2)) if relevant_fat else chrono
         composite = round((cardio + chrono + composition + chrono) / 4)
         out.append({"month": MONTHS_FR[anchor.month - 1].upper() + (" '" + str(anchor.year % 100)) if months_back in (12, 6, 0) else MONTHS_FR[anchor.month - 1].upper(), "value": composite})
     return out
@@ -1918,6 +1920,8 @@ def build_pillar_detail_recovery(hc_records: list[dict], today: date, huawei_dai
             iso_year, iso_week, _ = d.isocalendar()
             key = f"{iso_year:04d}-W{iso_week:02d}"
             total = float(r["sleep_total_min"])
+            if total <= 0:
+                continue
             weekly.setdefault(key, []).append(total)
             if r.get("sleep_deep_min") is not None:
                 deep_w.setdefault(key, []).append(float(r["sleep_deep_min"]) / total * 100)
@@ -2263,7 +2267,14 @@ def _last_snapshot_marker() -> str | None:
 def main() -> None:
     for k in ("SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"):
         env(k)
-    today = date.fromisoformat(os.environ.get("TODAY") or datetime.now(timezone.utc).date().isoformat())
+    # Paris-local "today" so the snapshot row date matches what the user
+    # sees in the UI. Using UTC here flipped the day around 22h-00h Paris.
+    try:
+        from zoneinfo import ZoneInfo
+        _today_default = datetime.now(ZoneInfo("Europe/Paris")).date().isoformat()
+    except ImportError:
+        _today_default = datetime.now(timezone.utc).date().isoformat()
+    today = date.fromisoformat(os.environ.get("TODAY") or _today_default)
 
     force = bool(os.environ.get("FORCE_REBUILD"))
     current_max = _max_ingested_at()
