@@ -69,6 +69,33 @@ export function Hero({ hero }: Props) {
     return d;
   }, [startDate]);
 
+  // Tick at the first of every other month between start_date and start+week_max.
+  // Year suffix appears whenever the year changes vs the previous tick.
+  const MONTHS_FR_SHORT = ["JANV", "FÉV", "MARS", "AVR", "MAI", "JUIN", "JUIL", "AOÛT", "SEPT", "OCT", "NOV", "DÉC"];
+  const xAxisTicks = useMemo(() => {
+    const ticks: { x: number; label: string; anchor: "start" | "middle" | "end" }[] = [];
+    const endMs = startDate.getTime() + week_max * 7 * 24 * 3600 * 1000;
+    const cursor = new Date(startDate.getFullYear(), startDate.getMonth(), 1);
+    let lastYear = startDate.getFullYear();
+    let isFirst = true;
+    while (cursor.getTime() <= endMs) {
+      const weeksFromStart = (cursor.getTime() - startDate.getTime()) / (7 * 24 * 3600 * 1000);
+      if (weeksFromStart >= 0) {
+        const x = weekToX(weeksFromStart);
+        const m = MONTHS_FR_SHORT[cursor.getMonth()];
+        const yr = cursor.getFullYear();
+        const label = yr !== lastYear || isFirst ? `${m}'${String(yr).slice(-2)}` : m;
+        const anchor: "start" | "middle" | "end" =
+          x <= VIEW.xMin + 5 ? "start" : x >= VIEW.xMax - 5 ? "end" : "middle";
+        ticks.push({ x, label, anchor });
+        lastYear = yr;
+        isFirst = false;
+      }
+      cursor.setMonth(cursor.getMonth() + 2);
+    }
+    return ticks;
+  }, [startDate, week_max, weekToX]);
+
   const idealPath = useMemo(() => {
     const samples: string[] = [];
     for (let w = 0; w <= week_max; w += 2) {
@@ -210,13 +237,14 @@ export function Hero({ hero }: Props) {
           {/* Goal line at 75 kg */}
           <line x1="30" y1={wToY(75).toFixed(1)} x2="330" y2={wToY(75).toFixed(1)} strokeWidth="0.5" strokeDasharray="2 3" opacity="0.45" style={{ stroke: "var(--cream-on-sage-soft)" }}/>
 
-          {/* X axis labels */}
+          {/* X axis labels — computed from start_date so they actually align
+              with the time scale. Hardcoded text placed at fixed X positions
+              drifted out of sync with the data (e.g. "SEPT" landed where
+              mid-October actually rendered, making the ETA pin look wrong). */}
           <g fontSize="9" fontWeight="500" letterSpacing="0.06em" style={{ fill: "var(--cream-on-sage-soft)" }}>
-            <text x="30"   y="194" textAnchor="start">AVR</text>
-            <text x="98.5" y="194" textAnchor="middle">JUIN</text>
-            <text x="180"  y="194" textAnchor="middle">SEPT</text>
-            <text x="260"  y="194" textAnchor="middle">DÉC</text>
-            <text x="330"  y="194" textAnchor="end">AVR'27</text>
+            {xAxisTicks.map(({ x, label, anchor }) => (
+              <text key={label + x.toFixed(0)} x={x.toFixed(1)} y="194" textAnchor={anchor}>{label}</text>
+            ))}
           </g>
 
           <path d={tolerancePath} opacity="0.07" style={{ fill: "var(--cream-on-sage)" }}/>
