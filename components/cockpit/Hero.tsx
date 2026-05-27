@@ -108,13 +108,17 @@ export function Hero({ hero }: Props) {
   const todayX = weekToX(hero.today_week);
   const todayY = wToY(hero.current_kg);
   const etaX = weekToX(hero.today_week + (week_max - hero.today_week)); // not strictly correct; use real eta
-  // Compute eta X from ideal: find when ideal crosses 75 within range.
+  // Pin uses the SAME source as the ETA text (backend `eta_75kg`, computed
+  // via Gompertz on smoothed current weight). Previously the pin re-derived
+  // the date from the cohort-ideal curve with re-fitted tau, which has a
+  // different shape and lands weeks/months earlier than the real projection.
   const etaWeeks = useMemo(() => {
-    for (let w = 0; w <= week_max + 4; w += 0.1) {
-      if (weightIdeal(w, M.start_kg, M.asymptote_kg, personalTau, M.shape) <= 75) return w;
-    }
-    return week_max;
-  }, [week_max, personalTau, M.start_kg, M.asymptote_kg, M.shape]);
+    if (!hero.eta_75kg || !hero.start_date) return week_max;
+    const start = new Date(hero.start_date).getTime();
+    const eta = new Date(hero.eta_75kg).getTime();
+    if (!Number.isFinite(start) || !Number.isFinite(eta)) return week_max;
+    return (eta - start) / (7 * 24 * 3600 * 1000);
+  }, [hero.eta_75kg, hero.start_date, week_max]);
   const etaXcoord = weekToX(Math.min(etaWeeks, week_max));
   const etaYcoord = wToY(75);
 
