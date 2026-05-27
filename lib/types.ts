@@ -13,6 +13,8 @@ export interface WeightHero {
   status: StatusBand;
   statusLabel: string;
   current_kg: number;
+  smoothed_kg?: number;     // 7-day rolling mean used by the backend
+  personal_tau?: number;    // Gompertz tau fit on smoothed_kg
   ideal_kg: number;
   delta_kg: number;
   tolerance_kg: number;

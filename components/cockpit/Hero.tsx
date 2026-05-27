@@ -77,10 +77,20 @@ export function Hero({ hero }: Props) {
     return samples.join(" ");
   }, [weekToX, wToY, week_max, M.start_kg, M.asymptote_kg, M.tau_weeks, M.shape]);
 
-  const personalTau = useMemo(
-    () => fitTau(hero.current_kg, hero.today_week, M.start_kg, M.asymptote_kg, M.shape, M.tau_weeks),
-    [hero.current_kg, hero.today_week, M.start_kg, M.asymptote_kg, M.shape, M.tau_weeks]
-  );
+  // Use the backend-computed personal_tau when available so the projection
+  // curve drawn here and the ETA date in the snapshot share the SAME fit
+  // (both anchored on the 7-day smoothed weight, not the raw daily value).
+  // Fallback to fitting on smoothed_kg, then current_kg, for old payloads.
+  const personalTau = useMemo(() => {
+    if (typeof hero.personal_tau === "number" && hero.personal_tau > 0) {
+      return hero.personal_tau;
+    }
+    const anchor =
+      typeof hero.smoothed_kg === "number" && hero.smoothed_kg > 0
+        ? hero.smoothed_kg
+        : hero.current_kg;
+    return fitTau(anchor, hero.today_week, M.start_kg, M.asymptote_kg, M.shape, M.tau_weeks);
+  }, [hero.personal_tau, hero.smoothed_kg, hero.current_kg, hero.today_week, M.start_kg, M.asymptote_kg, M.shape, M.tau_weeks]);
   const projectionPath = useMemo(() => {
     const samples: string[] = [];
     const start = hero.today_week;

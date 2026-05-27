@@ -349,6 +349,12 @@ def build_hero(measurements: list[dict], today: date) -> dict:
         "status": status_key,
         "statusLabel": status_label,
         "current_kg": round(current_kg, 1),
+        # Smoothed (7d) current kg — what the backend anchors the personal
+        # projection on. The frontend must fit its `personalTau` on this, NOT
+        # on `current_kg`, otherwise the projection curve and the ETA marker
+        # drift apart (raw daily weight fluctuates ±0.5 kg with hydration).
+        "smoothed_kg": round(smoothed, 2),
+        "personal_tau": round(personal_tau, 3),
         "ideal_kg": round(ideal, 1),
         "delta_kg": round(delta, 1),
         "tolerance_kg": TOLERANCE_KG,
