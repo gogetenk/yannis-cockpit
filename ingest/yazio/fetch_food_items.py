@@ -74,14 +74,70 @@ def _num(x: Any) -> float | None:
         return None
 
 
-def _sodium_g_to_mg(g: Any) -> float | None:
-    v = _num(g)
-    return v * 1000.0 if v is not None else None
+# Yazio's product `nutrients` map is per **gram** of food (in grams or kcal),
+# NOT per 100 g. Empirically: drinking yoghurt sodium ≈ 0.00065 g/g, kcal
+# ≈ 0.68 /g — which round to 65 mg/100 g and 68 kcal/100 g. So a per-100 g
+# representation requires × 100 (mass-density → per-100g) and, for sodium /
+# cholesterol that we store in mg, an additional × 1000 (g → mg). The
+# helpers below own that conversion so the per-100g column meaning matches
+# the column name (and so daily aggregates and per-item ranges line up).
+PER_G_TO_PER_100G = 100.0
+G_TO_MG = 1000.0
 
 
-def _chol_g_to_mg(g: Any) -> float | None:
-    v = _num(g)
-    return v * 1000.0 if v is not None else None
+def _macro_per_100g(g_per_g: Any) -> float | None:
+    v = _num(g_per_g)
+    return v * PER_G_TO_PER_100G if v is not None else None
+
+
+def _sodium_per_100g_mg(g_per_g: Any) -> float | None:
+    v = _num(g_per_g)
+    return v * G_TO_MG * PER_G_TO_PER_100G if v is not None else None
+
+
+def _chol_per_100g_mg(g_per_g: Any) -> float | None:
+    v = _num(g_per_g)
+    return v * G_TO_MG * PER_G_TO_PER_100G if v is not None else None
+
+
+# Hard physiological upper caps per 100 g of food. Anything above is almost
+# certainly a unit-confusion bug in Yazio's product DB (community-edited,
+# notoriously inconsistent). When a stored value blows past the cap we null
+# it and log to stderr — the LLM enrichment layer fills the slot later.
+# Lower bound is implicit 0; negative values are also nulled.
+PER_100G_CAPS: dict[str, float] = {
+    "kcal_per_100g": 900.0,           # pure oil ≈ 884 kcal/100g, can't exceed
+    "protein_g_per_100g": 95.0,       # whey isolate ≈ 90
+    "carb_g_per_100g": 100.0,         # pure sugar
+    "fat_g_per_100g": 100.0,          # pure oil
+    "fat_sat_per_100g": 95.0,         # pure butter ≈ 51, coconut oil ≈ 87
+    "sugar_per_100g": 100.0,
+    "fiber_per_100g": 90.0,           # psyllium ≈ 80
+    "nutrient_alcohol_per_100g": 100.0,  # pure ethanol
+    "sodium_per_100g_mg": 40_000.0,   # pure salt ≈ 38,700 mg sodium/100g
+    "cholesterol_per_100g_mg": 3_000.0,  # egg yolk powder ≈ 2,200
+}
+
+
+def _clamp_outliers(row: dict[str, Any]) -> dict[str, Any]:
+    """Null out per-100g values that breach physiological caps, log them."""
+    name = row.get("name", "?")
+    for k, cap in PER_100G_CAPS.items():
+        v = row.get(k)
+        if v is None:
+            continue
+        try:
+            f = float(v)
+        except (TypeError, ValueError):
+            row[k] = None
+            continue
+        if f < 0 or f > cap:
+            _log(
+                f"  (fetch_food_items: outlier {k}={f:g} > cap {cap:g} "
+                f"on '{name}' — nulled, will be LLM-estimated)"
+            )
+            row[k] = None
+    return row
 
 
 def _product_row(it: dict, products: dict) -> dict[str, Any]:
@@ -93,27 +149,28 @@ def _product_row(it: dict, products: dict) -> dict[str, Any]:
     name = p.get("name", f"<unknown {pid}>")
     nutr = p.get("nutrients", {}) or {}
     sodium = nutr.get("mineral.sodium") or nutr.get("nutrient.sodium")
-    return {
+    row = {
         "name": name,
         "amount_g": float(amount or 0),
         "meal": meal,
         "source_kind": "product",
         "is_ai_estimate": False,
-        "nutrient_alcohol_per_100g": _num(nutr.get("nutrient.alcohol")),
-        "kcal_per_100g": _num(nutr.get("energy.energy")),
-        "sodium_per_100g_mg": _sodium_g_to_mg(sodium),
-        "fat_g_per_100g": _num(nutr.get("nutrient.fat")),
-        "fat_sat_per_100g": _num(nutr.get("nutrient.saturated")),
-        "carb_g_per_100g": _num(nutr.get("nutrient.carb")),
-        "sugar_per_100g": _num(nutr.get("nutrient.sugar")),
-        "fiber_per_100g": _num(
+        "nutrient_alcohol_per_100g": _macro_per_100g(nutr.get("nutrient.alcohol")),
+        "kcal_per_100g": _macro_per_100g(nutr.get("energy.energy")),
+        "sodium_per_100g_mg": _sodium_per_100g_mg(sodium),
+        "fat_g_per_100g": _macro_per_100g(nutr.get("nutrient.fat")),
+        "fat_sat_per_100g": _macro_per_100g(nutr.get("nutrient.saturated")),
+        "carb_g_per_100g": _macro_per_100g(nutr.get("nutrient.carb")),
+        "sugar_per_100g": _macro_per_100g(nutr.get("nutrient.sugar")),
+        "fiber_per_100g": _macro_per_100g(
             nutr.get("nutrient.fiber") or nutr.get("nutrient.dietaryfiber")
         ),
-        "protein_g_per_100g": _num(nutr.get("nutrient.protein")),
-        "cholesterol_per_100g_mg": _chol_g_to_mg(nutr.get("nutrient.cholesterol")),
+        "protein_g_per_100g": _macro_per_100g(nutr.get("nutrient.protein")),
+        "cholesterol_per_100g_mg": _chol_per_100g_mg(nutr.get("nutrient.cholesterol")),
         "product_id": pid,
         "recipe_id": None,
     }
+    return _clamp_outliers(row)
 
 
 def _recipe_row(it: dict, recipes: dict) -> dict[str, Any] | None:
@@ -162,7 +219,7 @@ def _recipe_row(it: dict, recipes: dict) -> dict[str, Any] | None:
     if chol is not None and portion_mass_g and portion_mass_g > 0:
         chol_per_100g_mg = (_num(chol) or 0.0) * 1000.0 * 100.0 / portion_mass_g
 
-    return {
+    return _clamp_outliers({
         "name": name,
         "amount_g": amount_g if amount_g is not None else 0.0,
         "meal": meal,
@@ -181,7 +238,7 @@ def _recipe_row(it: dict, recipes: dict) -> dict[str, Any] | None:
         "cholesterol_per_100g_mg": chol_per_100g_mg,
         "product_id": None,
         "recipe_id": rid,
-    }
+    })
 
 
 def _simple_row(it: dict) -> dict[str, Any]:
@@ -237,7 +294,7 @@ def _simple_row(it: dict) -> dict[str, Any]:
             return None
         return v * 100.0 / amount
 
-    return {
+    return _clamp_outliers({
         "name": name,
         "amount_g": amount,
         "meal": meal,
@@ -255,7 +312,7 @@ def _simple_row(it: dict) -> dict[str, Any]:
         "cholesterol_per_100g_mg": None,
         "product_id": None,
         "recipe_id": None,
-    }
+    })
 
 
 def fetch_food_items(

@@ -454,6 +454,61 @@ def load_huawei() -> dict[date, dict]:
     return out
 
 
+def load_healthconnect_sleep() -> dict[date, dict[str, int]]:
+    """Aggregate Health Connect sleep_session rows -> {date: {sleep_total_min,...}}.
+
+    Source: `hc_raw_record` populated by the Android cockpit-sync APK. We
+    attribute each session to the LOCAL (Europe/Paris) date of `end_ts` —
+    i.e. the morning the user woke up — so "sleep on day X" matches the
+    daily_features row for X.
+
+    Returns only `sleep_total_min` for now; Health Connect can expose
+    stage records (deep/rem/light) as separate `sleep_session.stages[]`
+    items in the payload, but Huawei watches surfaced via Health Connect
+    typically don't fill those, so we leave deep/rem null here and let
+    huawei_daily provide them when available.
+    """
+    try:
+        from zoneinfo import ZoneInfo
+    except ImportError:  # py<3.9
+        return {}
+    paris = ZoneInfo("Europe/Paris")
+    try:
+        rows = sb_get(
+            "hc_raw_record",
+            {
+                "select": "start_ts,end_ts",
+                "record_type": "eq.sleep_session",
+                "order": "end_ts.asc",
+            },
+        )
+    except Exception as e:
+        print(f"[features] load_healthconnect_sleep failed: {e}", file=sys.stderr)
+        return {}
+    by_date: dict[date, float] = defaultdict(float)
+    for r in rows:
+        s = r.get("start_ts")
+        e = r.get("end_ts")
+        if not s or not e:
+            continue
+        try:
+            ts_s = datetime.fromisoformat(s.replace("Z", "+00:00"))
+            ts_e = datetime.fromisoformat(e.replace("Z", "+00:00"))
+        except (TypeError, ValueError):
+            continue
+        dur_min = (ts_e - ts_s).total_seconds() / 60.0
+        if dur_min <= 0 or dur_min > 24 * 60:
+            continue
+        wake_date = ts_e.astimezone(paris).date()
+        by_date[wake_date] += dur_min
+    out: dict[date, dict[str, int]] = {}
+    for d, mins in by_date.items():
+        # Cap at 16h to ignore overlapping/duplicate sessions from multiple
+        # apps writing to Health Connect.
+        out[d] = {"sleep_total_min": int(round(min(mins, 16 * 60)))}
+    return out
+
+
 def load_wegovy() -> list[tuple[date, float]]:
     rows = sb_get("wegovy_injection", {"select": "date,dose_mg", "order": "date.asc"})
     out: list[tuple[date, float]] = []
@@ -1208,6 +1263,24 @@ def main() -> None:
     wm_by_d = load_withings_measurements()
     wa_by_d = load_withings_activity()
     hu_by_d = load_huawei()
+    hc_sleep_by_d = load_healthconnect_sleep()
+    # Fold HC sleep into the huawei dict as a fallback: huawei_daily wins when
+    # present (it has deep/rem stages), HC fills the gap when huawei_daily
+    # has nothing for a date (Android APK is the live source since the
+    # Huawei export pipeline was abandoned).
+    n_hc_only = 0
+    for d, hc in hc_sleep_by_d.items():
+        existing = hu_by_d.get(d)
+        if existing is None:
+            hu_by_d[d] = dict(hc)
+            n_hc_only += 1
+        elif not existing.get("sleep_total_min"):
+            existing["sleep_total_min"] = hc.get("sleep_total_min")
+    print(
+        f"[features] HC sleep merged: {len(hc_sleep_by_d)} date(s) from "
+        f"hc_raw_record, {n_hc_only} of which had no huawei_daily row",
+        file=sys.stderr,
+    )
     wegovy_ladder = load_wegovy()
 
     # Universe of dates with any data, clipped to [since, today].
@@ -1215,7 +1288,7 @@ def main() -> None:
     # up to 84 days) purely to feed the rolling stats — but we only upsert
     # rows whose date >= since.
     all_dates: set[date] = set()
-    for src in (yz_by_d, micros_by_d, wm_by_d, wa_by_d, hu_by_d):
+    for src in (yz_by_d, micros_by_d, wm_by_d, wa_by_d, hu_by_d, hc_sleep_by_d):
         all_dates.update(src.keys())
     if not all_dates:
         print("[features] no source data found", file=sys.stderr)
