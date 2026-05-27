@@ -2405,16 +2405,31 @@ def main() -> None:
     labs = latest_lab_panel(panels, results)
     print(f"  loaded: {len(measurements)} withings rows, {len(activity)} activity days, {len(yazio)} yazio days, {len(hc_records)} HC records, {len(huawei_daily)} huawei_daily rows, {len(panels)} lab panels ({len(results)} results)", file=sys.stderr)
 
-    # Anchor START_KG to the real pre-injection peak (J-14 → J0) so the
-    # ideal trajectory starts at the measured baseline, not a hardcoded const.
-    # ASYMPTOTE_KG scales proportionally to preserve the cohort drop ratio.
-    global START_KG, ASYMPTOTE_KG
+    # Anchor START_KG to the real pre-injection peak so the trajectory
+    # starts on the measured baseline. ASYMPTOTE_KG is NOT scaled — it
+    # stays at the cohort STEP-1 plateau (74 kg, -14.5 % from Yannis'
+    # original peak). Reason: when both START and ASYMP were scaled
+    # together by a fixed drop_ratio, the fit was structurally forced
+    # to converge on the cohort tau (you were "exactly average" by
+    # construction). Holding ASYMP fixed lets the regression actually
+    # reflect a faster (smaller tau) or slower (larger tau) response.
+    global START_KG
     computed_start = compute_start_kg(measurements, date.fromisoformat(WEGOVY_START_ISO))
     if computed_start is not None:
-        drop_ratio = ASYMPTOTE_KG / START_KG
-        START_KG = round(computed_start, 2)
-        ASYMPTOTE_KG = round(START_KG * drop_ratio, 2)
-        print(f"  baseline anchored: START_KG={START_KG} (peak pre-J1), ASYMPTOTE_KG={ASYMPTOTE_KG}", file=sys.stderr)
+        # Use the MAX of W0 readings (peak), not the mean — anchoring on the
+        # mean dragged START below the first weigh-in and biased tau upward.
+        w0 = [
+            float(m["value"]) for m in measurements
+            if m.get("type_code") == 1
+            and m.get("position") in (None, 0)
+            and date.fromisoformat(WEGOVY_START_ISO) <= date.fromisoformat(m["ts"][:10])
+                < date.fromisoformat(WEGOVY_START_ISO) + timedelta(days=7)
+        ]
+        if w0:
+            START_KG = round(max(w0), 2)
+        else:
+            START_KG = round(computed_start, 2)
+        print(f"  baseline anchored: START_KG={START_KG} (peak pre-J1), ASYMPTOTE_KG={ASYMPTOTE_KG} (fixed cohort plateau)", file=sys.stderr)
 
     pillar_detail: dict[str, Any] = {}
     comp_detail = build_pillar_detail_composition(measurements, today)
