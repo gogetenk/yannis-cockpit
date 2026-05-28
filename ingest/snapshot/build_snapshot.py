@@ -533,6 +533,63 @@ def build_wegovy(today: date, injections: list[dict] | None = None) -> dict:
     }
 
 
+def build_vshape_signal(body_meas: list[dict], today: date) -> dict | None:
+    """V-shape ratio = shoulder_cm / waist_cm. Tiers:
+      - alert  < 1.30  (carrure peu marquée)
+      - watch  1.30-1.44 (athlétique-modéré)
+      - ok     ≥ 1.45  (V visible)
+      - "Adonis"  ≥ 1.618 = phi (golden ratio, idéal classique)
+
+    Uses the latest non-null shoulder + the latest non-null waist (which may
+    not be the same row). Falls back to None if either is missing.
+    """
+    if not body_meas:
+        return None
+    rows = sorted(body_meas, key=lambda r: r.get("date") or "", reverse=True)
+    latest_waist = next((r for r in rows if r.get("waist_cm") is not None), None)
+    latest_shoulder = next((r for r in rows if r.get("shoulder_cm") is not None), None)
+    if not latest_waist or not latest_shoulder:
+        return None
+    try:
+        waist = float(latest_waist["waist_cm"])
+        shoulder = float(latest_shoulder["shoulder_cm"])
+    except (TypeError, ValueError):
+        return None
+    if waist <= 0 or shoulder <= 0:
+        return None
+    ratio = shoulder / waist
+    if ratio < 1.30:
+        status = "alert"; label = "carrure peu marquée"
+    elif ratio < 1.45:
+        status = "watch"; label = "athlétique-modéré"
+    elif ratio < 1.618:
+        status = "ok"; label = "V visible"
+    else:
+        status = "ok"; label = "Adonis (≥ phi)"
+    spark_color = "rouge" if status == "alert" else ("ambre" if status == "watch" else "sage")
+    # Spark: V-ratio history when both measurements present on the same row.
+    history: list[tuple[date, float]] = []
+    for r in rows:
+        w = r.get("waist_cm"); s = r.get("shoulder_cm")
+        if w and s:
+            try:
+                history.append((date.fromisoformat(r["date"]), float(s)/float(w)))
+            except (TypeError, ValueError):
+                continue
+    history.sort()
+    spark_vals = [round(v, 3) for _, v in history[-8:]]
+    return {
+        "id": "vshape",
+        "title": "V-shape",
+        "sub": f"épaules {shoulder:.0f} · taille {waist:.0f} · cible ≥ 1,45",
+        "value": f"{ratio:.2f}".replace(".", ","),
+        "unit": "ratio",
+        "status": status,
+        "status_label": label,
+        "spark": {"kind": "line", "color": spark_color, "points": [(i, v) for i, v in enumerate(spark_vals)]} if spark_vals else {"kind": "line", "color": spark_color, "points": []},
+    }
+
+
 def build_signals(yazio: list[dict], measurements: list[dict], activity: list[dict], hc_records: list[dict], today: date, huawei_daily: list[dict] | None = None) -> list[dict]:
     """5 cross-source signals. Returns only those with usable data."""
     out: list[dict] = []
@@ -2396,6 +2453,11 @@ def main() -> None:
     })
     huawei_daily = sb_get("huawei_daily", {"select": "*", "order": "date.desc"})
     try:
+        body_meas = sb_get("body_measurement", {"select": "date,waist_cm,shoulder_cm,chest_cm,hip_cm,biceps_cm,thigh_cm,wrist_cm", "order": "date.desc"})
+    except Exception as e:
+        print(f"  warn: body_measurement fetch failed ({e})", file=sys.stderr)
+        body_meas = []
+    try:
         injections = sb_get("wegovy_injection", {"select": "date,dose_mg,logged_at", "order": "date.desc"})
     except Exception as e:
         print(f"  warn: wegovy_injection fetch failed ({e}); falling back to weekday assumption", file=sys.stderr)
@@ -2450,6 +2512,9 @@ def main() -> None:
         pillar_detail["biology"] = bio_detail
 
     sigs = build_signals(yazio, measurements, activity, hc_records, today, huawei_daily)
+    v_sig = build_vshape_signal(body_meas, today)
+    if v_sig:
+        sigs.append(v_sig)
     payload: dict[str, Any] = {
         "today": today.isoformat(),
         "hero": build_hero(measurements, today),
