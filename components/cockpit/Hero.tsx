@@ -64,6 +64,12 @@ export function Hero({ hero }: Props) {
     return best.kg;
   }, [hero.real_points]);
 
+  const weekToDate = useCallback((t: number) => {
+    const d = new Date(startDate);
+    d.setDate(d.getDate() + Math.round(t * 7));
+    return d;
+  }, [startDate]);
+
   // Same-snap helper for the tooltip date: return the date of the nearest
   // real_point instead of the cursor's free-floating date, so the label
   // matches the value shown.
@@ -78,12 +84,6 @@ export function Hero({ hero }: Props) {
     }
     return weekToDate(best.week);
   }, [hero.real_points, weekToDate]);
-
-  const weekToDate = useCallback((t: number) => {
-    const d = new Date(startDate);
-    d.setDate(d.getDate() + Math.round(t * 7));
-    return d;
-  }, [startDate]);
 
   // Tick at the first of every other month between start_date and start+week_max.
   // Year suffix appears whenever the year changes vs the previous tick.
