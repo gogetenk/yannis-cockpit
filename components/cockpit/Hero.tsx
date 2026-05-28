@@ -49,19 +49,35 @@ export function Hero({ hero }: Props) {
   const weekToX = useCallback((t: number) => VIEW.xMin + (t / week_max) * (VIEW.xMax - VIEW.xMin), [week_max]);
   const wToY = useCallback((w: number) => VIEW.yMin + ((kg_max - w) / (kg_max - kg_min)) * (VIEW.yMax - VIEW.yMin), [kg_min, kg_max]);
 
+  // Snap to the nearest real measurement point (no interpolation): the
+  // tooltip's "mesurée" must show the actual weigh-in of the closest day,
+  // not a value invented between two days.
   const weightActual = useCallback((t: number) => {
     const pts = hero.real_points;
-    if (t <= pts[0].week) return pts[0].kg;
-    if (t >= pts[pts.length-1].week) return pts[pts.length-1].kg;
+    if (pts.length === 0) return 0;
+    let best = pts[0];
+    let bestDist = Math.abs(t - pts[0].week);
     for (let i = 1; i < pts.length; i++) {
-      const a = pts[i-1], b = pts[i];
-      if (t <= b.week) {
-        const f = (t - a.week) / (b.week - a.week);
-        return a.kg + f * (b.kg - a.kg);
-      }
+      const d = Math.abs(t - pts[i].week);
+      if (d < bestDist) { best = pts[i]; bestDist = d; }
     }
-    return pts[pts.length-1].kg;
+    return best.kg;
   }, [hero.real_points]);
+
+  // Same-snap helper for the tooltip date: return the date of the nearest
+  // real_point instead of the cursor's free-floating date, so the label
+  // matches the value shown.
+  const weekToDateSnapped = useCallback((t: number): Date => {
+    const pts = hero.real_points;
+    if (pts.length === 0) return weekToDate(t);
+    let best = pts[0];
+    let bestDist = Math.abs(t - pts[0].week);
+    for (let i = 1; i < pts.length; i++) {
+      const d = Math.abs(t - pts[i].week);
+      if (d < bestDist) { best = pts[i]; bestDist = d; }
+    }
+    return weekToDate(best.week);
+  }, [hero.real_points, weekToDate]);
 
   const weekToDate = useCallback((t: number) => {
     const d = new Date(startDate);
@@ -173,6 +189,7 @@ export function Hero({ hero }: Props) {
     const ideal = weightIdeal(t, M.start_kg, M.asymptote_kg, M.tau_weeks, M.shape);
     const actual = isFuture ? weightIdeal(t, M.start_kg, M.asymptote_kg, personalTau, M.shape) : weightActual(t);
     const delta = actual - ideal;
+    const tooltipDate = isFuture ? weekToDate(t) : weekToDateSnapped(t);
     const wrapRect = wrapRef.current.getBoundingClientRect();
     const ttWidth = tooltipRef.current?.getBoundingClientRect().width || 180;
     const xPx = clientX - wrapRect.left;
@@ -180,7 +197,7 @@ export function Hero({ hero }: Props) {
     const pad = 8;
     if (left < pad) left = pad;
     if (left + ttWidth > wrapRect.width - pad) left = wrapRect.width - ttWidth - pad;
-    setTip({ xView, yIdeal: wToY(ideal), date: weekToDate(t), ideal, actual, delta, isFuture, left });
+    setTip({ xView, yIdeal: wToY(ideal), date: tooltipDate, ideal, actual, delta, isFuture, left });
   }, [pointerToViewX, xToWeek, hero.today_week, weightActual, wToY, weekToDate, personalTau]);
 
   const hide = useCallback(() => setTip(null), []);
