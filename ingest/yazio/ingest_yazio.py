@@ -442,6 +442,57 @@ def replace_food_items_for_dates(rows: list[dict]) -> None:
     )
 
 
+def fetch_body_measurements(token_path: Path, days_window: int) -> list[dict]:
+    """Pull waist / hip / chest / body_fat from Yazio's /user/bodyvalues/{type}
+    endpoint for each day in the window. Returns body_measurement rows ready
+    to upsert. Yazio exposes these via the same package's YazioClient — no
+    CLI subcommand needed, just direct API calls."""
+    try:
+        from yazio_exporter.client import YazioClient
+    except ImportError:
+        print("  body_measurement: yazio_exporter package not importable", file=sys.stderr)
+        return []
+    token = token_path.read_text().strip()
+    client = YazioClient()
+    client.set_token(token)
+    types = ("waist", "hip", "chest", "body_fat")
+    rows_by_date: dict[str, dict] = {}
+    start = date.today() - timedelta(days=days_window)
+    end = date.today()
+    d = start
+    while d <= end:
+        d_iso = d.isoformat()
+        for tname in types:
+            try:
+                r = client.get(f"/user/bodyvalues/{tname}/last?date={d_iso}")
+                data = r.json()
+            except Exception:
+                continue
+            if not isinstance(data, dict): continue
+            v = data.get("value")
+            if v is None: continue
+            # Yazio returns the LAST known value, so we keep it only if the
+            # returned record's date matches this iteration's date (otherwise
+            # we'd duplicate the same measurement across every empty day).
+            entry_date = (data.get("date") or "")[:10]
+            if entry_date != d_iso: continue
+            try:
+                v = float(v)
+            except (TypeError, ValueError):
+                continue
+            col = "body_fat_pct" if tname == "body_fat" else f"{tname}_cm"
+            # body_fat_pct is not in the schema (BIA already covers it via Withings);
+            # skip silently to keep the schema clean.
+            if col == "body_fat_pct":
+                continue
+            row = rows_by_date.setdefault(d_iso, {"date": d_iso, "notes": "yazio sync"})
+            row[col] = v
+        d += timedelta(days=1)
+    rows = list(rows_by_date.values())
+    print(f"  body_measurement (yazio): {len(rows)} date(s) with new measurements", file=sys.stderr)
+    return rows
+
+
 def main() -> None:
     for name in REQUIRED_ENV:
         env(name)
@@ -458,9 +509,19 @@ def main() -> None:
             merge_micro_rows(micro_rows, extras_rows, extra_macro_rows)
         )
         food_item_rows = parse_food_items(out_dir)
+        # Body tape measurements (waist/hip/chest) — uses the existing token
+        # written by run_exporter's `login` step. Errors swallowed: it's a
+        # nice-to-have, not a blocker.
+        body_rows: list[dict] = []
+        try:
+            body_rows = fetch_body_measurements(out_dir / "token.txt", days_window)
+        except Exception as e:
+            print(f"  body_measurement: fetch failed ({e}); skipping", file=sys.stderr)
         upsert(day_rows, "yazio_day", "date")
         upsert(meal_rows, "yazio_meal", "date,meal")
         upsert(all_micro_rows, "yazio_micronutrient_daily", "date,nutrient_id")
+        if body_rows:
+            upsert(body_rows, "body_measurement", "date")
         # For food items, the natural key is (date, meal_slot, item_index).
         # An upsert handles updates, but items removed in Yazio after a prior
         # ingest would still linger as ghost rows -- delete each date's slate
