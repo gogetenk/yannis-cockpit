@@ -380,23 +380,36 @@ def compute_start_kg(measurements: list[dict], start: date, window_days: int = 1
 
 
 def real_weight_points(measurements: list[dict], start: date, today: date) -> list[dict]:
-    """One weight point per week since Wegovy start, weekly average."""
-    weights = [m for m in measurements if m["type_code"] == 1]
-    if not weights:
-        return []
-    # bucket by week index since start
-    buckets: dict[int, list[float]] = {}
-    for m in weights:
-        ts = datetime.fromisoformat(m["ts"].replace("Z", "+00:00")).date()
+    """One weight point per DAY (mean of that day's weigh-ins).
+
+    Was: weekly buckets. Switched to daily so the chart's solid line passes
+    through actual measurements — the tooltip's "mesurée" label was then
+    showing a 7-day average for today's point (e.g. 83.3 kg instead of the
+    user's real 82.9 morning reading). Same-day duplicates (multiple Withings
+    sessions) are averaged because Withings often records 2-3 readings per
+    morning session.
+    """
+    by_day: dict[date, list[float]] = {}
+    for m in measurements:
+        if m.get("type_code") != 1:
+            continue
+        if m.get("position") not in (None, 0):
+            continue
+        try:
+            ts = datetime.fromisoformat(m["ts"].replace("Z", "+00:00")).date()
+            v = float(m["value"])
+        except (TypeError, ValueError, KeyError):
+            continue
         if ts < start or ts > today:
             continue
-        week = (ts - start).days / 7
-        wk_int = int(week)
-        buckets.setdefault(wk_int, []).append(float(m["value"]))
-    out = []
-    for wk in sorted(buckets):
-        kg = sum(buckets[wk]) / len(buckets[wk])
-        out.append({"week": wk, "kg": round(kg, 1)})
+        if not (40.0 < v < 200.0):
+            continue
+        by_day.setdefault(ts, []).append(v)
+    out: list[dict] = []
+    for d in sorted(by_day):
+        kg = sum(by_day[d]) / len(by_day[d])
+        week_frac = (d - start).days / 7.0
+        out.append({"week": round(week_frac, 3), "kg": round(kg, 2)})
     return out
 
 
