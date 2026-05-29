@@ -509,6 +509,92 @@ def load_healthconnect_sleep() -> dict[date, dict[str, int]]:
     return out
 
 
+def load_healthconnect_activity() -> dict[date, dict[str, float]]:
+    """Aggregate Health Connect activity records → daily totals.
+
+    Fallback for when `withings_activity_daily` stops updating (the Huawei
+    → Health Mate → Withings cloud chain has been flaky). Same pattern as
+    `load_healthconnect_sleep`: source is `hc_raw_record` populated by
+    the Android cockpit-sync APK.
+
+    Per-day aggregates emitted:
+      - steps              sum of `steps.value_num`
+      - active_min         sum of `exercise_session` duration minutes
+      - total_kcal         sum of `total_calories.value_num` (HC unit: kcal)
+      - active_kcal        sum of `active_calories.value_num`
+      - distance_m         sum of `distance.value_num` (HC unit: meters)
+
+    Attribution: each record's local (Europe/Paris) date of `start_ts`.
+    """
+    try:
+        from zoneinfo import ZoneInfo
+    except ImportError:
+        return {}
+    paris = ZoneInfo("Europe/Paris")
+    types = ("steps", "exercise_session", "total_calories", "active_calories", "distance")
+    try:
+        rows = sb_get(
+            "hc_raw_record",
+            {
+                "select": "start_ts,end_ts,record_type,value_num",
+                "record_type": f"in.({','.join(types)})",
+                "order": "start_ts.asc",
+            },
+        )
+    except Exception as e:
+        print(f"[features] load_healthconnect_activity failed: {e}", file=sys.stderr)
+        return {}
+    by_date: dict[date, dict[str, float]] = defaultdict(lambda: defaultdict(float))
+    for r in rows:
+        rt = r.get("record_type")
+        s = r.get("start_ts")
+        if not s:
+            continue
+        try:
+            ts_s = datetime.fromisoformat(s.replace("Z", "+00:00"))
+        except (TypeError, ValueError):
+            continue
+        d = ts_s.astimezone(paris).date()
+        v = r.get("value_num")
+        if rt == "exercise_session":
+            e = r.get("end_ts")
+            if not e:
+                continue
+            try:
+                ts_e = datetime.fromisoformat(e.replace("Z", "+00:00"))
+            except (TypeError, ValueError):
+                continue
+            mins = (ts_e - ts_s).total_seconds() / 60.0
+            if 0 < mins < 24 * 60:
+                by_date[d]["active_min"] += mins
+            continue
+        try:
+            vnum = float(v) if v is not None else 0.0
+        except (TypeError, ValueError):
+            continue
+        if vnum <= 0:
+            continue
+        if rt == "steps":
+            by_date[d]["steps"] += vnum
+        elif rt == "total_calories":
+            by_date[d]["total_kcal"] += vnum
+        elif rt == "active_calories":
+            by_date[d]["active_kcal"] += vnum
+        elif rt == "distance":
+            by_date[d]["distance_m"] += vnum
+    out: dict[date, dict[str, float]] = {}
+    for d, agg in by_date.items():
+        # Cap at sane physiological / device-glitch upper bounds.
+        out[d] = {
+            "steps": int(min(agg["steps"], 100_000)),
+            "active_min": int(round(min(agg["active_min"], 24 * 60))),
+            "total_kcal": round(min(agg["total_kcal"], 10_000), 1),
+            "active_kcal": round(min(agg["active_kcal"], 10_000), 1),
+            "distance_m": round(min(agg["distance_m"], 200_000), 0),
+        }
+    return out
+
+
 def load_wegovy() -> list[tuple[date, float]]:
     rows = sb_get("wegovy_injection", {"select": "date,dose_mg", "order": "date.asc"})
     out: list[tuple[date, float]] = []
@@ -1265,6 +1351,26 @@ def main() -> None:
     micros_by_d = load_yazio_micros()
     wm_by_d = load_withings_measurements()
     wa_by_d = load_withings_activity()
+    hc_activity_by_d = load_healthconnect_activity()
+    # Fold HC activity into withings activity dict — HC fills the gap when
+    # withings_activity_daily is empty for a date (Huawei → Health Mate →
+    # Withings cloud chain has been stuck for days at a time). Withings
+    # wins when both are present (canonical, calibrated).
+    n_hc_only_act = 0
+    for d, hc in hc_activity_by_d.items():
+        existing = wa_by_d.get(d)
+        if existing is None:
+            wa_by_d[d] = dict(hc)
+            n_hc_only_act += 1
+        else:
+            for k in ("steps", "active_min", "total_kcal", "active_kcal", "distance_m"):
+                if existing.get(k) in (None, 0) and hc.get(k):
+                    existing[k] = hc[k]
+    print(
+        f"[features] HC activity merged: {len(hc_activity_by_d)} date(s), "
+        f"{n_hc_only_act} of which had no withings_activity_daily row",
+        file=sys.stderr,
+    )
     hu_by_d = load_huawei()
     hc_sleep_by_d = load_healthconnect_sleep()
     # Fold HC sleep into the huawei dict as a fallback: huawei_daily wins when
