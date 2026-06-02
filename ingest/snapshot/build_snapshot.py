@@ -686,13 +686,20 @@ def build_signals(yazio: list[dict], measurements: list[dict], activity: list[di
     # Wegovy response z-score removed: hero already conveys "X kg en avance/retard
     # vs cible idéale", which is the human-readable form of the same z.
 
-    # --- Sleep vs optimum 7.5h (Hirshkowitz NSF 2015) ---
+    # --- Sleep vs optimum 8h (NSF midpoint + Walker + Cappuccio nadir) ---
+    # 7h30 = NSF lower bound. 8h = NSF midpoint, also Cappuccio 2010 meta-
+    # analysis nadir of all-cause mortality (n=1.4M), Walker's
+    # recommended floor, and the standard in sport-recovery literature
+    # (Mah 2011 Stanford basketball: gains in performance from sleep
+    # extension to 8.5h+). Cohérent with the user's profile: Wegovy
+    # fatigue + serious resistance training + cognitive load all push
+    # toward the upper recommended range.
     sleep_pts = _sleep_minutes_per_day(hc_records, today, 14)
     if len(sleep_pts) >= 3:
         last7 = sleep_pts[-7:]
         avg_min = sum(v for _, v in last7) / len(last7)
-        # Weekly cumulative delta vs 7h30/nuit target. Positive = surplus.
-        delta_min_total = (avg_min - 450) * len(last7)  # minutes/semaine (signed)
+        # Weekly cumulative delta vs 8h/nuit target. Positive = surplus.
+        delta_min_total = (avg_min - 480) * len(last7)  # minutes/semaine (signed)
         delta_h = delta_min_total / 60
         # Dette = écart NÉGATIF cumulé (delta_min_total < 0)
         debt_min = -delta_min_total if delta_min_total < 0 else 0
@@ -711,7 +718,7 @@ def build_signals(yazio: list[dict], measurements: list[dict], activity: list[di
         out.append({
             "id": "sleep",
             "title": "Dette sommeil",
-            "sub": "optimum 7 h 30/nuit",
+            "sub": "optimum 8 h/nuit (TST)",
             "value": f"{sign}{abs(int(round(delta_h)))} h",
             "unit": "/ semaine",
             "status": status,
