@@ -1592,14 +1592,21 @@ def _avg_hrv_from_hc(hc_records: list[dict], today: date) -> tuple[float, list[f
 
 
 def _sleep_minutes_per_day(hc_records: list[dict], today: date, days: int) -> list[tuple[date, float]]:
-    """Per-day NIGHT sleep minutes from sleep_session records.
+    """Per-day TOTAL sleep minutes from sleep_session records (TST).
 
-    Health Connect receives the SAME night from multiple source apps
-    (APK direct, Health Sync via Google Fit, my Drive-CSV backfill).
-    Naive string-dedup on (start_ts, end_ts) failed because PostgREST
-    serialises timestamps inconsistently across rows. We now merge
-    overlapping time intervals per wake-date into a union — duplicates
-    collapse, legit naps still add up.
+    Includes naps. The literature is unambiguous that even micro-naps
+    (≥5 min) produce measurable cognitive + cardiovascular benefits
+    (Hayashi 1999 Sleep, Brooks 2006 Sleep, NASA Rosekind 1994,
+    Naska 2007 Arch Intern Med). The 7h30/day target therefore becomes
+    a Total Sleep Time target, not a night-only target.
+
+    Health Connect receives the SAME session from multiple source apps
+    (APK direct, Health Sync via Google Fit, Drive-CSV backfill). We
+    merge overlapping time intervals per wake-date so duplicates
+    collapse into a single span before summing.
+
+    Lower floor of 5 min filters HR-drop noise misclassified as sleep
+    by some smartwatches; upper bound of 24h catches pathological data.
     """
     intervals_by_day: dict[date, list[tuple[datetime, datetime]]] = {}
     cutoff = today - timedelta(days=days)
@@ -1615,7 +1622,7 @@ def _sleep_minutes_per_day(hc_records: list[dict], today: date, days: int) -> li
         except (TypeError, ValueError):
             continue
         dur_min = (ts_e - ts_s).total_seconds() / 60.0
-        if dur_min <= 0 or dur_min > 24 * 60:
+        if dur_min < 5 or dur_min > 24 * 60:
             continue
         d_str = (e if e else s)[:10]
         try:
@@ -1625,13 +1632,6 @@ def _sleep_minutes_per_day(hc_records: list[dict], today: date, days: int) -> li
         if d < cutoff or d > today:
             continue
         intervals_by_day.setdefault(d, []).append((ts_s, ts_e))
-    # Per wake-date: if there's at least one >=240 min session, drop the
-    # sub-240 ones (genuine naps). Otherwise keep everything — it's a
-    # truncated night (e.g. early flight) that SHOULD count toward debt.
-    for d, intervals in intervals_by_day.items():
-        long_sessions = [iv for iv in intervals if (iv[1] - iv[0]).total_seconds() / 60.0 >= 240]
-        if long_sessions:
-            intervals_by_day[d] = long_sessions
     out: dict[date, float] = {}
     for d, intervals in intervals_by_day.items():
         intervals.sort()
