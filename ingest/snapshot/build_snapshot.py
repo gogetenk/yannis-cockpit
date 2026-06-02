@@ -1594,31 +1594,51 @@ def _avg_hrv_from_hc(hc_records: list[dict], today: date) -> tuple[float, list[f
 def _sleep_minutes_per_day(hc_records: list[dict], today: date, days: int) -> list[tuple[date, float]]:
     """Per-day NIGHT sleep minutes from sleep_session records.
 
-    Health Connect receives the same night from multiple source apps (Withings,
-    Health Sync, Google Fit). Dedup by (start_ts, end_ts) to avoid summing
-    duplicates. Daytime naps (<4 h) are filtered so they don't inflate the
-    night total when bucketed on the same wake day.
+    Health Connect receives the SAME night from multiple source apps
+    (APK direct, Health Sync via Google Fit, my Drive-CSV backfill).
+    Naive string-dedup on (start_ts, end_ts) failed because PostgREST
+    serialises timestamps inconsistently across rows. We now merge
+    overlapping time intervals per wake-date into a union — duplicates
+    collapse, legit naps still add up.
     """
-    seen: set[tuple[str, str]] = set()
-    by_day: dict[date, float] = {}
+    intervals_by_day: dict[date, list[tuple[datetime, datetime]]] = {}
+    cutoff = today - timedelta(days=days)
     for r in hc_records:
-        if r["record_type"] != "sleep_session" or r.get("value_num") is None:
+        if r.get("record_type") != "sleep_session":
             continue
-        mins = float(r["value_num"])
-        if mins < 240:  # skip naps
+        s = r.get("start_ts"); e = r.get("end_ts")
+        if not s or not e:
             continue
-        key = (r["start_ts"], r.get("end_ts") or "")
-        if key in seen:
+        try:
+            ts_s = datetime.fromisoformat(s.replace("Z", "+00:00"))
+            ts_e = datetime.fromisoformat(e.replace("Z", "+00:00"))
+        except (TypeError, ValueError):
             continue
-        seen.add(key)
-        d_str = (r.get("end_ts") or r["start_ts"])[:10]
-        d = date.fromisoformat(d_str)
-        if d < today - timedelta(days=days) or d > today:
+        dur_min = (ts_e - ts_s).total_seconds() / 60.0
+        if dur_min < 240:  # skip naps
             continue
-        # Take MAX rather than sum in case the same night gets logged with
-        # different durations across sources (e.g. one trims wake-up time).
-        by_day[d] = max(by_day.get(d, 0), mins)
-    return sorted(by_day.items())
+        d_str = (e if e else s)[:10]
+        try:
+            d = date.fromisoformat(d_str)
+        except ValueError:
+            continue
+        if d < cutoff or d > today:
+            continue
+        intervals_by_day.setdefault(d, []).append((ts_s, ts_e))
+    out: dict[date, float] = {}
+    for d, intervals in intervals_by_day.items():
+        intervals.sort()
+        merged: list[list[datetime]] = []
+        for s, e in intervals:
+            if merged and s <= merged[-1][1]:
+                if e > merged[-1][1]:
+                    merged[-1][1] = e
+            else:
+                merged.append([s, e])
+        total_min = sum((e - s).total_seconds() / 60.0 for s, e in merged)
+        # Cap at 16h as final pathological-data safety.
+        out[d] = min(total_min, 16 * 60)
+    return sorted(out.items())
 
 
 def build_pillars(yazio: list[dict], measurements: list[dict], activity: list[dict], hc_records: list[dict], today: date) -> list[dict]:
