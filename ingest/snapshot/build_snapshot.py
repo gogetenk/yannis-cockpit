@@ -1615,7 +1615,7 @@ def _sleep_minutes_per_day(hc_records: list[dict], today: date, days: int) -> li
         except (TypeError, ValueError):
             continue
         dur_min = (ts_e - ts_s).total_seconds() / 60.0
-        if dur_min < 240:  # skip naps
+        if dur_min <= 0 or dur_min > 24 * 60:
             continue
         d_str = (e if e else s)[:10]
         try:
@@ -1625,6 +1625,13 @@ def _sleep_minutes_per_day(hc_records: list[dict], today: date, days: int) -> li
         if d < cutoff or d > today:
             continue
         intervals_by_day.setdefault(d, []).append((ts_s, ts_e))
+    # Per wake-date: if there's at least one >=240 min session, drop the
+    # sub-240 ones (genuine naps). Otherwise keep everything — it's a
+    # truncated night (e.g. early flight) that SHOULD count toward debt.
+    for d, intervals in intervals_by_day.items():
+        long_sessions = [iv for iv in intervals if (iv[1] - iv[0]).total_seconds() / 60.0 >= 240]
+        if long_sessions:
+            intervals_by_day[d] = long_sessions
     out: dict[date, float] = {}
     for d, intervals in intervals_by_day.items():
         intervals.sort()
