@@ -479,16 +479,20 @@ def load_healthconnect_sleep() -> dict[date, dict[str, int]]:
             {
                 "select": "start_ts,end_ts",
                 "record_type": "eq.sleep_session",
-                "order": "end_ts.asc",
+                "order": "start_ts.asc",
             },
         )
     except Exception as e:
         print(f"[features] load_healthconnect_sleep failed: {e}", file=sys.stderr)
         return {}
-    by_date: dict[date, float] = defaultdict(float)
+    # Collect (start, end) intervals per wake_date. Multiple sources (the
+    # APK + Google Fitness + my Drive-CSV backfill) push the SAME night
+    # under different uids, so naive summing inflates sleep 2-3×. We
+    # dedupe by merging OVERLAPPING intervals into a single union before
+    # summing — handles both duplicates and legit naps cleanly.
+    intervals_by_date: dict[date, list[tuple[datetime, datetime]]] = defaultdict(list)
     for r in rows:
-        s = r.get("start_ts")
-        e = r.get("end_ts")
+        s = r.get("start_ts"); e = r.get("end_ts")
         if not s or not e:
             continue
         try:
@@ -500,12 +504,22 @@ def load_healthconnect_sleep() -> dict[date, dict[str, int]]:
         if dur_min <= 0 or dur_min > 24 * 60:
             continue
         wake_date = ts_e.astimezone(paris).date()
-        by_date[wake_date] += dur_min
+        intervals_by_date[wake_date].append((ts_s, ts_e))
+
     out: dict[date, dict[str, int]] = {}
-    for d, mins in by_date.items():
-        # Cap at 16h to ignore overlapping/duplicate sessions from multiple
-        # apps writing to Health Connect.
-        out[d] = {"sleep_total_min": int(round(min(mins, 16 * 60)))}
+    for d, intervals in intervals_by_date.items():
+        # Merge overlapping intervals so duplicate sessions only count once.
+        intervals.sort()
+        merged: list[list[datetime]] = []
+        for s, e in intervals:
+            if merged and s <= merged[-1][1]:
+                if e > merged[-1][1]:
+                    merged[-1][1] = e
+            else:
+                merged.append([s, e])
+        total_min = sum((e - s).total_seconds() / 60.0 for s, e in merged)
+        # Cap at 16h as a final safety against pathological data.
+        out[d] = {"sleep_total_min": int(round(min(total_min, 16 * 60)))}
     return out
 
 
