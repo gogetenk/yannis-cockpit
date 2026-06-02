@@ -1,0 +1,26 @@
+name: One-shot Health Sync backfill
+
+# Manual trigger only. Reads ingest/healthsync/_pending_backfill.json (parsed
+# locally from Health Sync's Google Drive CSV dumps) and upserts into
+# hc_raw_record. Used to fill gaps when the Huawei → Health Sync → Health
+# Connect chain is broken but the Drive export still works.
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install requests
+      - env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          python ingest/healthsync/backfill_from_drive_export.py \
+            --json-in ingest/healthsync/_pending_backfill.json
