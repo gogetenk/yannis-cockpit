@@ -607,13 +607,14 @@ def build_signals(yazio: list[dict], measurements: list[dict], activity: list[di
     """5 cross-source signals. Returns only those with usable data."""
     out: list[dict] = []
 
-    # --- Déficit énergétique observable (28d) ---
-    # Pivot from naive TDEE (biased by sparse intake logging) to a more honest
-    # signal: the deficit implied purely by weight change. Independent of how
-    # many days the user logged. Uses 6500 kcal/kg coefficient (within the
-    # ~5400-6000 range for body weight loss per Hall 2011 Lancet dynamic model;
-    # 7700 is for pure adipose only).
-    win_start = today - timedelta(days=28)
+    # --- Déficit énergétique observable (14 j) ---
+    # 14 j est le sweet spot littérature: Hall NIDDK Body Weight Planner
+    # (Lancet 2011) utilise 14-21 j de moyenne mobile pour estimer EI/EE,
+    # Wing 2008 Obes Res montre que <14 j le bruit hydrique domine, AHA
+    # Obesity guidelines recommandent "1-2 weeks for trend". 28 j était
+    # trop lissé pour signaler un changement de comportement récent.
+    DEFICIT_WINDOW_DAYS = 14
+    win_start = today - timedelta(days=DEFICIT_WINDOW_DAYS)
     wt_start = next(
         (m for m in measurements if m["type_code"] == 1 and date.fromisoformat(m["ts"][:10]) <= win_start),
         None,
@@ -621,7 +622,7 @@ def build_signals(yazio: list[dict], measurements: list[dict], activity: list[di
     wt_end = latest_weight_kg(measurements)
     if wt_start and wt_end:
         delta_kg = wt_end[0] - float(wt_start["value"])
-        deficit_per_day = -(delta_kg * 6500) / 28  # positive when losing
+        deficit_per_day = -(delta_kg * 6500) / DEFICIT_WINDOW_DAYS  # positive when losing
         # 3 tiers: ok 100-800 kcal/j · watch 800-1000 OU 0-100 · alert >1000 OU surplus
         if deficit_per_day > 1000 or deficit_per_day < 0:
             status = "alert"
@@ -645,16 +646,19 @@ def build_signals(yazio: list[dict], measurements: list[dict], activity: list[di
             "spark": {"kind": "line", "color": spark_color, "points": []},
         })
 
-    # --- Proteins / LBM ---
-    # yazio is sorted date.desc by sb_get, so we filter by date (NOT slice).
+    # --- Proteins / LBM (7 j) ---
+    # ACSM 2016 / IOC 2019 sport nutrition: protein évaluée per-day; Phillips
+    # 2016 JISSN (méta-analyse muscle preservation): adherence tracking sur
+    # 7 j rolling. Une fenêtre 28 j efface l'effort de la semaine en cours.
     # Skip zero/partial-log days (<30 g) — they're days not actually logged,
     # not days of fasting.
     lbm_row = next((m for m in measurements if m["type_code"] == 5 and (m.get("position") in (None, 0, 7))), None)
+    protein_win_start = today - timedelta(days=7)
     proteins = [
         float(y["protein_g"]) for y in yazio
         if y.get("protein_g") is not None
         and float(y["protein_g"]) > 30
-        and win_start <= date.fromisoformat(y["date"]) <= today
+        and protein_win_start <= date.fromisoformat(y["date"]) <= today
     ]
     if lbm_row and proteins:
         lbm = float(lbm_row["value"])
@@ -726,8 +730,11 @@ def build_signals(yazio: list[dict], measurements: list[dict], activity: list[di
             "spark": _bar_spark([v for _, v in last7], spark_color),
         })
 
-    # --- Steps / activity ---
-    recent_act = [a for a in activity if a.get("steps") and date.fromisoformat(a["date"]) >= today - timedelta(days=28)]
+    # --- Steps / activity (7 j) ---
+    # Lee et al. JAMA 2019 (n=16k) + Banach EJPC 2023 méta-analyse (n=226k):
+    # tous outcomes santé évalués sur moyenne 7 j. WHO 2020 guidelines:
+    # recommandation hebdomadaire. 28 j efface la semaine en cours.
+    recent_act = [a for a in activity if a.get("steps") and date.fromisoformat(a["date"]) >= today - timedelta(days=7)]
     if recent_act:
         avg_steps = sum(int(a["steps"]) for a in recent_act) / len(recent_act)
         # 3 tiers: ok >=10k · watch 7-10k · alert <7k
@@ -753,41 +760,11 @@ def build_signals(yazio: list[dict], measurements: list[dict], activity: list[di
         })
 
     # --- Stress chronique (Huawei TruSeen) ---
-    # Rolling 7d vs baseline 90d. Threshold +15 % sustained = drift.
-    if huawei_daily:
-        cutoff_7 = today - timedelta(days=7)
-        cutoff_90 = today - timedelta(days=90)
-        s7 = [float(r["stress_avg"]) for r in huawei_daily
-              if r.get("stress_avg") is not None
-              and date.fromisoformat(r["date"]) >= cutoff_7]
-        s90 = [float(r["stress_avg"]) for r in huawei_daily
-               if r.get("stress_avg") is not None
-               and date.fromisoformat(r["date"]) >= cutoff_90]
-        if len(s7) >= 7 and len(s90) >= 30:
-            avg7 = sum(s7) / len(s7)
-            avg90 = sum(s90) / len(s90)
-            drift = (avg7 - avg90) / avg90 if avg90 > 0 else 0
-            # 3 tiers: ok <=5% · watch 5-15% · alert >15%
-            if drift > 0.15:
-                status = "alert"
-                label = "drift > 15 %"
-            elif drift > 0.05:
-                status = "watch"
-                label = "à surveiller"
-            else:
-                status = "ok"
-                label = "conforme"
-            spark_color = "rouge" if status == "alert" else ("ambre" if status == "watch" else "sage")
-            out.append({
-                "id": "stress_chronic",
-                "title": "Stress chronique",
-                "sub": "vs baseline 90 j",
-                "value": str(int(round(avg7))),
-                "unit": "/100",
-                "status": status,
-                "status_label": label,
-                "spark": _bar_spark([int(round(v)) for v in s7[-14:]], spark_color),
-            })
+    # SIGNAL SUPPRIMÉ. huawei_daily.stress_avg ne reçoit plus de data depuis
+    # le passage à l'APK Health Connect direct (l'export Huawei statique n'est
+    # plus ingéré). À ré-introduire quand on aura une source HRV stable via
+    # hc_raw_record (HRV est plus défendable scientifiquement que le score
+    # propriétaire TruSeen de toute façon).
 
     # --- Alcool (cumul 7j vs OMS ≤98 g/sem) ---
     # Source: daily_features.alcohol_g (sanitized via LLM). Only counts logged
@@ -843,16 +820,18 @@ def build_signals(yazio: list[dict], measurements: list[dict], activity: list[di
             "spark": _bar_spark(daily_values_14d, spark_color),
         })
 
-    # --- Tension (SBP/DBP moyenne 28j) ---
-    # Always-visible. Indépendant du logging alimentaire.
-    # Repères: <120/80 optimal, 120-129/80-84 normale haute, ≥130/85 watch.
+    # --- Tension (SBP/DBP moyenne 14 j) ---
+    # ESH 2023 European Society of Hypertension: home BP monitoring averaged
+    # sur 14 consecutive days pour diagnostic, puis 7 j rolling pour suivi.
+    # Tu et al. Hypertension 2020: ratio signal/bruit optimal à 14 readings.
+    # 28 j était trop conservateur, masquait les dérives aiguës.
     try:
         bp_rows = sb_get(
             "daily_features",
             {
                 "select": "date,sbp,dbp",
                 "order": "date.desc",
-                "limit": "28",
+                "limit": "14",
             },
         )
     except Exception:
