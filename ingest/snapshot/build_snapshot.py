@@ -626,7 +626,10 @@ def build_signals(yazio: list[dict], measurements: list[dict], activity: list[di
             continue
         if not (cutoff_7 <= d <= today):
             continue
-        intake = _to_num(y.get("kcal"))
+        try:
+            intake = float(y["kcal"]) if y.get("kcal") is not None else None
+        except (TypeError, ValueError):
+            intake = None
         if intake is None or intake < 500:
             continue  # non loggé ou log trop partiel pour être crédible
         # Yazio's adjusted budget (goal + activity) lives in raw source JSON.
