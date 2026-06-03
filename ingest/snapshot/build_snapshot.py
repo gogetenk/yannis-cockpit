@@ -607,43 +607,69 @@ def build_signals(yazio: list[dict], measurements: list[dict], activity: list[di
     """5 cross-source signals. Returns only those with usable data."""
     out: list[dict] = []
 
-    # --- Déficit énergétique observable (14 j) ---
-    # 14 j est le sweet spot littérature: Hall NIDDK Body Weight Planner
-    # (Lancet 2011) utilise 14-21 j de moyenne mobile pour estimer EI/EE,
-    # Wing 2008 Obes Res montre que <14 j le bruit hydrique domine, AHA
-    # Obesity guidelines recommandent "1-2 weeks for trend". 28 j était
-    # trop lissé pour signaler un changement de comportement récent.
-    DEFICIT_WINDOW_DAYS = 14
-    win_start = today - timedelta(days=DEFICIT_WINDOW_DAYS)
-    wt_start = next(
-        (m for m in measurements if m["type_code"] == 1 and date.fromisoformat(m["ts"][:10]) <= win_start),
-        None,
-    )
-    wt_end = latest_weight_kg(measurements)
-    if wt_start and wt_end:
-        delta_kg = wt_end[0] - float(wt_start["value"])
-        deficit_per_day = -(delta_kg * 6500) / DEFICIT_WINDOW_DAYS  # positive when losing
-        # 3 tiers: ok 100-800 kcal/j · watch 800-1000 OU 0-100 · alert >1000 OU surplus
-        if deficit_per_day > 1000 or deficit_per_day < 0:
+    # --- Déficit calorique cumulé 7 j (intake Yazio vs budget activité-ajusté) ---
+    # Source: yazio_day.source.daily_summary.goals.energy.energy = budget
+    # quotidien = goal_base (1400 kcal typique) + activity_kcal observée.
+    # Pour chaque jour LOGGÉ (intake > 500 kcal pour filtrer logs partiels):
+    #   daily_deficit = budget - intake  (positif = sous le budget)
+    # Cumul sur les jours loggés des 7 derniers jours. Sub-line affiche la
+    # couverture (X jours loggés / 7) pour rappeler que les jours non-loggés
+    # ne comptent pas — pas de fake deficit imputé à un repas oublié.
+    # Cible: -1500 kcal/sem (~ -200 kcal/j) ≈ vitesse perte sustainable
+    # cohérente avec ton Wegovy 0.5 mg actuel.
+    cutoff_7 = today - timedelta(days=7)
+    daily_deficits: list[tuple[date, float]] = []
+    for y in yazio:
+        try:
+            d = date.fromisoformat(y["date"])
+        except (TypeError, ValueError, KeyError):
+            continue
+        if not (cutoff_7 <= d <= today):
+            continue
+        intake = _to_num(y.get("kcal"))
+        if intake is None or intake < 500:
+            continue  # non loggé ou log trop partiel pour être crédible
+        # Yazio's adjusted budget (goal + activity) lives in raw source JSON.
+        src = y.get("source") or {}
+        if isinstance(src, str):
+            try:
+                src = json.loads(src)
+            except (json.JSONDecodeError, TypeError):
+                src = {}
+        budget = None
+        try:
+            budget = float(((src.get("daily_summary") or {}).get("goals") or {}).get("energy.energy") or 0)
+        except (TypeError, ValueError):
+            budget = None
+        if not budget or budget <= 0:
+            continue
+        daily_deficits.append((d, budget - intake))
+    if daily_deficits:
+        daily_deficits.sort()
+        cumulative = sum(v for _, v in daily_deficits)
+        n_logged = len(daily_deficits)
+        # 3 tiers: alert si surplus > 2000 OU déficit > 7000 (perte trop rapide)
+        # · watch si surplus 0-2000 OU déficit 5000-7000 · ok si déficit 0-5000
+        if cumulative < -2000 or cumulative > 7000:
             status = "alert"
-            label = "surplus calorique" if deficit_per_day < 0 else "perte trop rapide"
-        elif deficit_per_day > 800 or deficit_per_day < 100:
+            label = "trop rapide" if cumulative > 7000 else "surplus marqué"
+        elif cumulative < 0 or cumulative > 5000:
             status = "watch"
-            label = "trop rapide" if deficit_per_day > 800 else "perte trop lente"
+            label = "surplus" if cumulative < 0 else "trop rapide"
         else:
             status = "ok"
-            label = "perte en cours"
-        title = "Déficit calorique" if deficit_per_day >= 0 else "Surplus calorique"
+            label = "déficit en cours"
+        title = "Déficit calorique" if cumulative >= 0 else "Surplus calorique"
         spark_color = "rouge" if status == "alert" else ("ambre" if status == "watch" else "sage")
         out.append({
             "id": "deficit",
             "title": title,
-            "sub": "",
-            "value": f"{abs(int(round(deficit_per_day))):,}".replace(",", " "),
-            "unit": "kcal/j",
+            "sub": f"cumul 7 j · {n_logged}/7 j loggés · budget = goal + activité",
+            "value": f"{int(round(abs(cumulative))):,}".replace(",", " "),
+            "unit": "kcal / 7 j",
             "status": status,
             "status_label": label,
-            "spark": {"kind": "line", "color": spark_color, "points": []},
+            "spark": _bar_spark([abs(v) for _, v in daily_deficits], spark_color),
         })
 
     # --- Proteins / LBM (7 j) ---
@@ -2470,7 +2496,7 @@ def main() -> None:
         "order": "date.desc",
     })
     yazio = sb_get("yazio_day", {
-        "select": "date,kcal,protein_g,carb_g,fat_g,steps,weight_kg",
+        "select": "date,kcal,protein_g,carb_g,fat_g,steps,weight_kg,source",
         "order": "date.desc",
     })
     hc_records = sb_get("hc_raw_record", {
