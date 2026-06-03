@@ -607,42 +607,44 @@ def build_signals(yazio: list[dict], measurements: list[dict], activity: list[di
     """5 cross-source signals. Returns only those with usable data."""
     out: list[dict] = []
 
-    # --- Déficit calorique vs budget Yazio (moyenne 7 j) ---
-    # Source unique = yazio_day. Budget quotidien = goal Yazio
-    # (typiquement 1400 kcal car objectif perte de poids 77 kg défini par
-    # l'user dans Yazio) + activity_kcal du jour. Pour chaque jour LOGGÉ
-    # (intake > 500 kcal), deficit_jour = budget - intake.
-    # Signal final = moyenne / 7 jours (en kcal/j), comme Yazio l'affiche
-    # dans son app. Pas de croisement Withings/HC — la TDEE physiologique
-    # vs ton goal Yazio sont 2 choses différentes ; on prend Yazio brut.
+    # --- Déficit calorique physiologique (moyenne 7 j) ---
+    # Formule simple: déficit_jour = BMR + activity_kcal - intake
+    #   - BMR via Katch-McArdle (370 + 21.6 × LBM) — basé sur ta vraie
+    #     composition corporelle Withings, pas un goal aggressive Yazio
+    #   - activity_kcal du jour: dépense liée à l'activité, depuis yazio_day
+    #     (Yazio le récupère via Huawei Health → Yazio)
+    #   - intake: kcal mangées loggées (yazio_day.kcal)
     cutoff_7 = today - timedelta(days=7)
+    lbm_row = next(
+        (m for m in measurements if m["type_code"] == 5 and (m.get("position") in (None, 0, 7))),
+        None,
+    )
+    bmr = None
+    if lbm_row:
+        try:
+            bmr = 370 + 21.6 * float(lbm_row["value"])
+        except (TypeError, ValueError):
+            bmr = None
     daily_deficits: list[tuple[date, float]] = []
-    for y in yazio:
-        try:
-            d = date.fromisoformat(y["date"])
-        except (TypeError, ValueError, KeyError):
-            continue
-        if not (cutoff_7 <= d <= today):
-            continue
-        try:
-            intake = float(y["kcal"]) if y.get("kcal") is not None else None
-        except (TypeError, ValueError):
-            intake = None
-        if intake is None or intake < 500:
-            continue
-        src = y.get("source") or {}
-        if isinstance(src, str):
+    if bmr is not None:
+        for y in yazio:
             try:
-                src = json.loads(src)
-            except (json.JSONDecodeError, TypeError):
-                src = {}
-        try:
-            budget = float(((src.get("daily_summary") or {}).get("goals") or {}).get("energy.energy") or 0)
-        except (TypeError, ValueError):
-            budget = 0.0
-        if budget <= 0:
-            continue
-        daily_deficits.append((d, budget - intake))
+                d = date.fromisoformat(y["date"])
+            except (TypeError, ValueError, KeyError):
+                continue
+            if not (cutoff_7 <= d <= today):
+                continue
+            try:
+                intake = float(y["kcal"]) if y.get("kcal") is not None else None
+            except (TypeError, ValueError):
+                intake = None
+            if intake is None or intake < 500:
+                continue
+            try:
+                act = float(y.get("activity_kcal") or 0)
+            except (TypeError, ValueError):
+                act = 0.0
+            daily_deficits.append((d, bmr + act - intake))
     if daily_deficits:
         daily_deficits.sort()
         avg_per_day = sum(v for _, v in daily_deficits) / 7  # division par 7 fixe (jours non loggés = 0)
@@ -665,7 +667,7 @@ def build_signals(yazio: list[dict], measurements: list[dict], activity: list[di
         out.append({
             "id": "deficit",
             "title": title,
-            "sub": f"vs budget Yazio · {n_logged}/7 j loggés",
+            "sub": f"BMR {int(round(bmr))} + activité − intake · {n_logged}/7 j loggés",
             "value": f"{int(round(abs(avg_per_day)))}",
             "unit": "kcal/j (moy 7j)",
             "status": status,
