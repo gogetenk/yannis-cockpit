@@ -607,87 +607,16 @@ def build_signals(yazio: list[dict], measurements: list[dict], activity: list[di
     """5 cross-source signals. Returns only those with usable data."""
     out: list[dict] = []
 
-    # --- Déficit calorique vs TDEE réelle (cumul 7 j) ---
-    # TDEE = dépense énergétique totale (BMR + active_kcal). Trois sources
-    # par ordre de préférence pour chaque jour:
-    #   1. withings_activity_daily.total_kcal (Withings BMR + actif)
-    #   2. hc_raw_record.total_calories sommé par jour (Huawei via HC)
-    #   3. Fallback Katch-McArdle (BMR = 370 + 21.6×LBM) × facteur activité
-    #      basé sur les steps du jour (sédentaire 1.3, léger 1.4, modéré
-    #      1.55, soutenu 1.7)
-    # Le fallback permet de garder TOUS les jours loggés côté intake même
-    # quand le capteur d'activité a flanché.
+    # --- Déficit calorique vs budget Yazio (moyenne 7 j) ---
+    # Source unique = yazio_day. Budget quotidien = goal Yazio
+    # (typiquement 1400 kcal car objectif perte de poids 77 kg défini par
+    # l'user dans Yazio) + activity_kcal du jour. Pour chaque jour LOGGÉ
+    # (intake > 500 kcal), deficit_jour = budget - intake.
+    # Signal final = moyenne / 7 jours (en kcal/j), comme Yazio l'affiche
+    # dans son app. Pas de croisement Withings/HC — la TDEE physiologique
+    # vs ton goal Yazio sont 2 choses différentes ; on prend Yazio brut.
     cutoff_7 = today - timedelta(days=7)
-    tdee_by_date: dict[date, tuple[float, str]] = {}  # value, source tag
-
-    # 1. Withings primary
-    for a in activity:
-        try:
-            d = date.fromisoformat(a["date"])
-        except (TypeError, ValueError, KeyError):
-            continue
-        if not (cutoff_7 <= d <= today):
-            continue
-        try:
-            tk = float(a["total_kcal"]) if a.get("total_kcal") is not None else None
-        except (TypeError, ValueError):
-            tk = None
-        if tk and tk > 0:
-            tdee_by_date[d] = (tk, "withings")
-
-    # 2. HC fallback
-    if hc_records:
-        hc_total_by_date: dict[date, float] = {}
-        for r in hc_records:
-            if r.get("record_type") != "total_calories":
-                continue
-            s = r.get("start_ts")
-            if not s:
-                continue
-            try:
-                d = date.fromisoformat(s[:10])
-                v = float(r["value_num"]) if r.get("value_num") is not None else 0
-            except (TypeError, ValueError):
-                continue
-            if cutoff_7 <= d <= today and 0 < v < 10_000:
-                hc_total_by_date[d] = hc_total_by_date.get(d, 0) + v
-        for d, v in hc_total_by_date.items():
-            if d not in tdee_by_date and 800 < v < 6000:
-                tdee_by_date[d] = (v, "hc")
-
-    # 3. Katch-McArdle BMR fallback when both sensors silent.
-    # Uses latest Withings LBM (type_code=5) when available.
-    lbm_row = next(
-        (m for m in measurements if m["type_code"] == 5 and (m.get("position") in (None, 0, 7))),
-        None,
-    )
-    bmr = None
-    if lbm_row:
-        try:
-            lbm = float(lbm_row["value"])
-            bmr = 370 + 21.6 * lbm  # Katch-McArdle
-        except (TypeError, ValueError):
-            bmr = None
-    # Activity factor from steps when available, else moderate default.
-    def _activity_factor(steps_today: float | None) -> float:
-        if steps_today is None or steps_today <= 0:
-            return 1.45  # moderately active default
-        if steps_today < 5000:
-            return 1.35
-        if steps_today < 8000:
-            return 1.45
-        if steps_today < 12000:
-            return 1.55
-        return 1.7
-    steps_by_date: dict[date, float] = {}
-    for a in activity:
-        try:
-            d = date.fromisoformat(a["date"])
-            steps_by_date[d] = float(a.get("steps") or 0)
-        except (TypeError, ValueError):
-            pass
-
-    daily_deficits: list[tuple[date, float, str]] = []  # date, value, source
+    daily_deficits: list[tuple[date, float]] = []
     for y in yazio:
         try:
             d = date.fromisoformat(y["date"])
@@ -701,45 +630,47 @@ def build_signals(yazio: list[dict], measurements: list[dict], activity: list[di
             intake = None
         if intake is None or intake < 500:
             continue
-        tdee_entry = tdee_by_date.get(d)
-        if tdee_entry is not None:
-            tdee, src = tdee_entry
-        elif bmr is not None:
-            tdee = bmr * _activity_factor(steps_by_date.get(d))
-            src = "estimé"
-        else:
+        src = y.get("source") or {}
+        if isinstance(src, str):
+            try:
+                src = json.loads(src)
+            except (json.JSONDecodeError, TypeError):
+                src = {}
+        try:
+            budget = float(((src.get("daily_summary") or {}).get("goals") or {}).get("energy.energy") or 0)
+        except (TypeError, ValueError):
+            budget = 0.0
+        if budget <= 0:
             continue
-        daily_deficits.append((d, tdee - intake, src))
+        daily_deficits.append((d, budget - intake))
     if daily_deficits:
         daily_deficits.sort()
-        cumulative = sum(v for _, v, _ in daily_deficits)
-        n_total = len(daily_deficits)
-        n_estim = sum(1 for _, _, src in daily_deficits if src == "estimé")
-        # 3 tiers (cumul 7 j vs TDEE réelle):
-        if cumulative < -2000 or cumulative > 7000:
+        avg_per_day = sum(v for _, v in daily_deficits) / 7  # division par 7 fixe (jours non loggés = 0)
+        n_logged = len(daily_deficits)
+        # 3 tiers en kcal/j moyen:
+        # - alert si surplus > 300/j (gain probable) OU déficit > 1000/j (trop rapide)
+        # - watch si surplus 0-300 OU déficit 700-1000
+        # - ok si déficit 0-700/j
+        if avg_per_day < -300 or avg_per_day > 1000:
             status = "alert"
-            label = "perte trop rapide" if cumulative > 7000 else "gain probable"
-        elif cumulative < 0 or cumulative > 5000:
+            label = "perte trop rapide" if avg_per_day > 1000 else "gain probable"
+        elif avg_per_day < 0 or avg_per_day > 700:
             status = "watch"
-            label = "surplus" if cumulative < 0 else "trop rapide"
+            label = "surplus" if avg_per_day < 0 else "trop rapide"
         else:
             status = "ok"
-            label = "déficit sustainable"
-        title = "Déficit calorique" if cumulative >= 0 else "Surplus calorique"
+            label = "déficit en cours"
+        title = "Déficit calorique" if avg_per_day >= 0 else "Surplus calorique"
         spark_color = "rouge" if status == "alert" else ("ambre" if status == "watch" else "sage")
-        if n_estim > 0:
-            sub = f"cumul 7 j · {n_total}/7 j · {n_estim} estimé(s) (BMR Katch-McArdle)"
-        else:
-            sub = f"cumul 7 j vs TDEE mesurée · {n_total}/7 j"
         out.append({
             "id": "deficit",
             "title": title,
-            "sub": sub,
-            "value": f"{int(round(abs(cumulative))):,}".replace(",", " "),
-            "unit": "kcal / 7 j",
+            "sub": f"vs budget Yazio · {n_logged}/7 j loggés",
+            "value": f"{int(round(abs(avg_per_day)))}",
+            "unit": "kcal/j (moy 7j)",
             "status": status,
             "status_label": label,
-            "spark": _bar_spark([abs(v) for _, v, _ in daily_deficits], spark_color),
+            "spark": _bar_spark([abs(v) for _, v in daily_deficits], spark_color),
         })
 
     # --- Proteins / LBM (7 j) ---
