@@ -608,20 +608,19 @@ def build_signals(yazio: list[dict], measurements: list[dict], activity: list[di
     out: list[dict] = []
 
     # --- Déficit calorique vs TDEE réelle (cumul 7 j) ---
-    # TDEE = dépense énergétique totale (BMR + active_kcal) mesurée par
-    # Withings (`withings_activity_daily.total_kcal`) avec fallback Health
-    # Connect (`hc_raw_record.total_calories`). Pour chaque jour LOGGÉ
-    # côté intake (yazio_day.kcal > 500), déficit = TDEE - intake.
-    # Cumul sur les jours valides des 7 derniers. Jours sans intake ou
-    # sans TDEE skippés — pas de fake déficit imputé à un repas oublié
-    # ni à un jour sans capteur d'activité.
-    #
-    # Cohérent avec la perte de poids observable (Hall NIDDK 6500 kcal/kg
-    # corporel) : un déficit hebdo de 4500-6500 kcal correspond à ~0.7-1.0
-    # kg de perte hebdo, vitesse sustainable sous Wegovy 0.5 mg.
+    # TDEE = dépense énergétique totale (BMR + active_kcal). Trois sources
+    # par ordre de préférence pour chaque jour:
+    #   1. withings_activity_daily.total_kcal (Withings BMR + actif)
+    #   2. hc_raw_record.total_calories sommé par jour (Huawei via HC)
+    #   3. Fallback Katch-McArdle (BMR = 370 + 21.6×LBM) × facteur activité
+    #      basé sur les steps du jour (sédentaire 1.3, léger 1.4, modéré
+    #      1.55, soutenu 1.7)
+    # Le fallback permet de garder TOUS les jours loggés côté intake même
+    # quand le capteur d'activité a flanché.
     cutoff_7 = today - timedelta(days=7)
-    # Build TDEE lookup per date: Withings first, HC fallback.
-    tdee_by_date: dict[date, float] = {}
+    tdee_by_date: dict[date, tuple[float, str]] = {}  # value, source tag
+
+    # 1. Withings primary
     for a in activity:
         try:
             d = date.fromisoformat(a["date"])
@@ -634,8 +633,9 @@ def build_signals(yazio: list[dict], measurements: list[dict], activity: list[di
         except (TypeError, ValueError):
             tk = None
         if tk and tk > 0:
-            tdee_by_date[d] = tk
-    # HC fallback for days Withings missed.
+            tdee_by_date[d] = (tk, "withings")
+
+    # 2. HC fallback
     if hc_records:
         hc_total_by_date: dict[date, float] = {}
         for r in hc_records:
@@ -652,10 +652,42 @@ def build_signals(yazio: list[dict], measurements: list[dict], activity: list[di
             if cutoff_7 <= d <= today and 0 < v < 10_000:
                 hc_total_by_date[d] = hc_total_by_date.get(d, 0) + v
         for d, v in hc_total_by_date.items():
-            if d not in tdee_by_date and 800 < v < 6000:  # sane TDEE range
-                tdee_by_date[d] = v
+            if d not in tdee_by_date and 800 < v < 6000:
+                tdee_by_date[d] = (v, "hc")
 
-    daily_deficits: list[tuple[date, float]] = []
+    # 3. Katch-McArdle BMR fallback when both sensors silent.
+    # Uses latest Withings LBM (type_code=5) when available.
+    lbm_row = next(
+        (m for m in measurements if m["type_code"] == 5 and (m.get("position") in (None, 0, 7))),
+        None,
+    )
+    bmr = None
+    if lbm_row:
+        try:
+            lbm = float(lbm_row["value"])
+            bmr = 370 + 21.6 * lbm  # Katch-McArdle
+        except (TypeError, ValueError):
+            bmr = None
+    # Activity factor from steps when available, else moderate default.
+    def _activity_factor(steps_today: float | None) -> float:
+        if steps_today is None or steps_today <= 0:
+            return 1.45  # moderately active default
+        if steps_today < 5000:
+            return 1.35
+        if steps_today < 8000:
+            return 1.45
+        if steps_today < 12000:
+            return 1.55
+        return 1.7
+    steps_by_date: dict[date, float] = {}
+    for a in activity:
+        try:
+            d = date.fromisoformat(a["date"])
+            steps_by_date[d] = float(a.get("steps") or 0)
+        except (TypeError, ValueError):
+            pass
+
+    daily_deficits: list[tuple[date, float, str]] = []  # date, value, source
     for y in yazio:
         try:
             d = date.fromisoformat(y["date"])
@@ -669,18 +701,21 @@ def build_signals(yazio: list[dict], measurements: list[dict], activity: list[di
             intake = None
         if intake is None or intake < 500:
             continue
-        tdee = tdee_by_date.get(d)
-        if tdee is None or tdee <= 0:
+        tdee_entry = tdee_by_date.get(d)
+        if tdee_entry is not None:
+            tdee, src = tdee_entry
+        elif bmr is not None:
+            tdee = bmr * _activity_factor(steps_by_date.get(d))
+            src = "estimé"
+        else:
             continue
-        daily_deficits.append((d, tdee - intake))
+        daily_deficits.append((d, tdee - intake, src))
     if daily_deficits:
         daily_deficits.sort()
-        cumulative = sum(v for _, v in daily_deficits)
-        n_logged = len(daily_deficits)
+        cumulative = sum(v for _, v, _ in daily_deficits)
+        n_total = len(daily_deficits)
+        n_estim = sum(1 for _, _, src in daily_deficits if src == "estimé")
         # 3 tiers (cumul 7 j vs TDEE réelle):
-        # - alert si surplus > 2000 (gain probable) OU déficit > 7000 (perte trop rapide)
-        # - watch si surplus 0-2000 OU déficit 5000-7000
-        # - ok si déficit 0-5000 (perte sustainable ≤ 1 kg/sem)
         if cumulative < -2000 or cumulative > 7000:
             status = "alert"
             label = "perte trop rapide" if cumulative > 7000 else "gain probable"
@@ -692,15 +727,19 @@ def build_signals(yazio: list[dict], measurements: list[dict], activity: list[di
             label = "déficit sustainable"
         title = "Déficit calorique" if cumulative >= 0 else "Surplus calorique"
         spark_color = "rouge" if status == "alert" else ("ambre" if status == "watch" else "sage")
+        if n_estim > 0:
+            sub = f"cumul 7 j · {n_total}/7 j · {n_estim} estimé(s) (BMR Katch-McArdle)"
+        else:
+            sub = f"cumul 7 j vs TDEE mesurée · {n_total}/7 j"
         out.append({
             "id": "deficit",
             "title": title,
-            "sub": f"cumul 7 j vs TDEE Withings · {n_logged}/7 j valides",
+            "sub": sub,
             "value": f"{int(round(abs(cumulative))):,}".replace(",", " "),
             "unit": "kcal / 7 j",
             "status": status,
             "status_label": label,
-            "spark": _bar_spark([abs(v) for _, v in daily_deficits], spark_color),
+            "spark": _bar_spark([abs(v) for _, v, _ in daily_deficits], spark_color),
         })
 
     # --- Proteins / LBM (7 j) ---
