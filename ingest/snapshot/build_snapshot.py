@@ -607,17 +607,54 @@ def build_signals(yazio: list[dict], measurements: list[dict], activity: list[di
     """5 cross-source signals. Returns only those with usable data."""
     out: list[dict] = []
 
-    # --- Déficit calorique cumulé 7 j (intake Yazio vs budget activité-ajusté) ---
-    # Source: yazio_day.source.daily_summary.goals.energy.energy = budget
-    # quotidien = goal_base (1400 kcal typique) + activity_kcal observée.
-    # Pour chaque jour LOGGÉ (intake > 500 kcal pour filtrer logs partiels):
-    #   daily_deficit = budget - intake  (positif = sous le budget)
-    # Cumul sur les jours loggés des 7 derniers jours. Sub-line affiche la
-    # couverture (X jours loggés / 7) pour rappeler que les jours non-loggés
-    # ne comptent pas — pas de fake deficit imputé à un repas oublié.
-    # Cible: -1500 kcal/sem (~ -200 kcal/j) ≈ vitesse perte sustainable
-    # cohérente avec ton Wegovy 0.5 mg actuel.
+    # --- Déficit calorique vs TDEE réelle (cumul 7 j) ---
+    # TDEE = dépense énergétique totale (BMR + active_kcal) mesurée par
+    # Withings (`withings_activity_daily.total_kcal`) avec fallback Health
+    # Connect (`hc_raw_record.total_calories`). Pour chaque jour LOGGÉ
+    # côté intake (yazio_day.kcal > 500), déficit = TDEE - intake.
+    # Cumul sur les jours valides des 7 derniers. Jours sans intake ou
+    # sans TDEE skippés — pas de fake déficit imputé à un repas oublié
+    # ni à un jour sans capteur d'activité.
+    #
+    # Cohérent avec la perte de poids observable (Hall NIDDK 6500 kcal/kg
+    # corporel) : un déficit hebdo de 4500-6500 kcal correspond à ~0.7-1.0
+    # kg de perte hebdo, vitesse sustainable sous Wegovy 0.5 mg.
     cutoff_7 = today - timedelta(days=7)
+    # Build TDEE lookup per date: Withings first, HC fallback.
+    tdee_by_date: dict[date, float] = {}
+    for a in activity:
+        try:
+            d = date.fromisoformat(a["date"])
+        except (TypeError, ValueError, KeyError):
+            continue
+        if not (cutoff_7 <= d <= today):
+            continue
+        try:
+            tk = float(a["total_kcal"]) if a.get("total_kcal") is not None else None
+        except (TypeError, ValueError):
+            tk = None
+        if tk and tk > 0:
+            tdee_by_date[d] = tk
+    # HC fallback for days Withings missed.
+    if hc_records:
+        hc_total_by_date: dict[date, float] = {}
+        for r in hc_records:
+            if r.get("record_type") != "total_calories":
+                continue
+            s = r.get("start_ts")
+            if not s:
+                continue
+            try:
+                d = date.fromisoformat(s[:10])
+                v = float(r["value_num"]) if r.get("value_num") is not None else 0
+            except (TypeError, ValueError):
+                continue
+            if cutoff_7 <= d <= today and 0 < v < 10_000:
+                hc_total_by_date[d] = hc_total_by_date.get(d, 0) + v
+        for d, v in hc_total_by_date.items():
+            if d not in tdee_by_date and 800 < v < 6000:  # sane TDEE range
+                tdee_by_date[d] = v
+
     daily_deficits: list[tuple[date, float]] = []
     for y in yazio:
         try:
@@ -631,43 +668,34 @@ def build_signals(yazio: list[dict], measurements: list[dict], activity: list[di
         except (TypeError, ValueError):
             intake = None
         if intake is None or intake < 500:
-            continue  # non loggé ou log trop partiel pour être crédible
-        # Yazio's adjusted budget (goal + activity) lives in raw source JSON.
-        src = y.get("source") or {}
-        if isinstance(src, str):
-            try:
-                src = json.loads(src)
-            except (json.JSONDecodeError, TypeError):
-                src = {}
-        budget = None
-        try:
-            budget = float(((src.get("daily_summary") or {}).get("goals") or {}).get("energy.energy") or 0)
-        except (TypeError, ValueError):
-            budget = None
-        if not budget or budget <= 0:
             continue
-        daily_deficits.append((d, budget - intake))
+        tdee = tdee_by_date.get(d)
+        if tdee is None or tdee <= 0:
+            continue
+        daily_deficits.append((d, tdee - intake))
     if daily_deficits:
         daily_deficits.sort()
         cumulative = sum(v for _, v in daily_deficits)
         n_logged = len(daily_deficits)
-        # 3 tiers: alert si surplus > 2000 OU déficit > 7000 (perte trop rapide)
-        # · watch si surplus 0-2000 OU déficit 5000-7000 · ok si déficit 0-5000
+        # 3 tiers (cumul 7 j vs TDEE réelle):
+        # - alert si surplus > 2000 (gain probable) OU déficit > 7000 (perte trop rapide)
+        # - watch si surplus 0-2000 OU déficit 5000-7000
+        # - ok si déficit 0-5000 (perte sustainable ≤ 1 kg/sem)
         if cumulative < -2000 or cumulative > 7000:
             status = "alert"
-            label = "trop rapide" if cumulative > 7000 else "surplus marqué"
+            label = "perte trop rapide" if cumulative > 7000 else "gain probable"
         elif cumulative < 0 or cumulative > 5000:
             status = "watch"
             label = "surplus" if cumulative < 0 else "trop rapide"
         else:
             status = "ok"
-            label = "déficit en cours"
+            label = "déficit sustainable"
         title = "Déficit calorique" if cumulative >= 0 else "Surplus calorique"
         spark_color = "rouge" if status == "alert" else ("ambre" if status == "watch" else "sage")
         out.append({
             "id": "deficit",
             "title": title,
-            "sub": f"cumul 7 j · {n_logged}/7 j loggés · budget = goal + activité",
+            "sub": f"cumul 7 j vs TDEE Withings · {n_logged}/7 j valides",
             "value": f"{int(round(abs(cumulative))):,}".replace(",", " "),
             "unit": "kcal / 7 j",
             "status": status,
