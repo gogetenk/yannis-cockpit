@@ -2499,7 +2499,7 @@ def main() -> None:
         "order": "date.desc",
     })
     yazio = sb_get("yazio_day", {
-        "select": "date,kcal,protein_g,carb_g,fat_g,steps,weight_kg,source",
+        "select": "date,kcal,protein_g,carb_g,fat_g,steps,weight_kg,activity_kcal,source",
         "order": "date.desc",
     })
     hc_records = sb_get("hc_raw_record", {
