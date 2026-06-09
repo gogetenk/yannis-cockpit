@@ -1,0 +1,37 @@
+name: Ingest Withings ECG
+
+# Pulls raw ECG waveforms (v2/heart list+get), derives HRV metrics, upserts
+# into withings_ecg. ECG recordings are rare (manual), so this runs a few
+# times a day and skips signalids already ingested.
+
+on:
+  schedule:
+    # 07:10 / 13:10 / 21:10 UTC
+    - cron: "10 7,13,21 * * *"
+  workflow_dispatch:
+    inputs:
+      since_days:
+        description: "List window in days (default 400)."
+        default: ""
+
+jobs:
+  ingest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: ingest/withings/requirements.txt
+      - name: Install ingest deps
+        run: pip install -r ingest/withings/requirements.txt
+      - name: Run ECG ingest
+        env:
+          WITHINGS_CLIENT_ID: ${{ secrets.WITHINGS_CLIENT_ID }}
+          WITHINGS_CLIENT_SECRET: ${{ secrets.WITHINGS_CLIENT_SECRET }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          ECG_SINCE_DAYS: ${{ github.event.inputs.since_days }}
+        run: python ingest/withings/ingest_ecg.py
