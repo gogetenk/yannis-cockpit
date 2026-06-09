@@ -788,12 +788,51 @@ def build_signals(yazio: list[dict], measurements: list[dict], activity: list[di
             "spark": _bar_spark([int(a["steps"]) for a in recent_act[-14:]], spark_color),
         })
 
-    # --- Stress chronique (Huawei TruSeen) ---
-    # SIGNAL SUPPRIMÉ. huawei_daily.stress_avg ne reçoit plus de data depuis
-    # le passage à l'APK Health Connect direct (l'export Huawei statique n'est
-    # plus ingéré). À ré-introduire quand on aura une source HRV stable via
-    # hc_raw_record (HRV est plus défendable scientifiquement que le score
-    # propriétaire TruSeen de toute façon).
+    # --- Récupération (HR de repos nocturne vs baseline perso) ---
+    # Remplace le signal stress_chronic supprimé. z-score du HR de repos
+    # (moyenne du quintile bas des mesures 02-06h, proxy du HR de sommeil
+    # profond) contre une baseline glissante 30 j trimmée. Méthode standard
+    # WHOOP/Garmin "recovery" : une nuit où l'autonome reste tendu remonte le
+    # HR de repos au-dessus du baseline.
+    # Labellisé "HR repos" et NON "HRV" : le HR de repos est un proxy autonome
+    # plus faible que le RMSSD. L'ECG Withings n'ingère pour l'instant que le
+    # code de résultat afib (type 130), pas la waveform nécessaire au RMSSD —
+    # à upgrader vers HRV quand le Heart endpoint sera ingéré.
+    morning_hr = _morning_resting_hr_by_day(hc_records, today, 30)
+    if len(morning_hr) >= 14:
+        days_sorted = sorted(morning_hr)
+        vals = [morning_hr[d] for d in days_sorted[-30:]]
+        n = len(vals)
+        trim = max(1, n // 10)
+        trimmed = sorted(vals)[trim:-trim] if n > 2 * trim else vals
+        bmean = sum(trimmed) / len(trimmed)
+        mean_all = sum(vals) / n
+        sd = (sum((x - mean_all) ** 2 for x in vals) / (n - 1)) ** 0.5 if n > 1 else 5.0
+        latest_day = days_sorted[-1]
+        latest_hr = morning_hr[latest_day]
+        z = (latest_hr - bmean) / sd if sd > 0 else 0.0
+        # 3 tiers (HR haut = moins récupéré): ok z<0.5 · watch 0.5-1.5 · alert >=1.5
+        if z >= 1.5:
+            status = "alert"
+            label = "sous tension"
+        elif z >= 0.5:
+            status = "watch"
+            label = "tension légère"
+        else:
+            status = "ok"
+            label = "récupéré"
+        spark_color = "rouge" if status == "alert" else ("ambre" if status == "watch" else "sage")
+        spark_vals = [morning_hr[d] for d in days_sorted[-14:]]
+        out.append({
+            "id": "recovery",
+            "title": "Récup (HR repos)",
+            "sub": f"baseline {bmean:.0f} bpm · z {z:+.1f}",
+            "value": f"{latest_hr:.0f}",
+            "unit": "bpm sommeil profond",
+            "status": status,
+            "status_label": label,
+            "spark": _bar_spark(spark_vals, spark_color),
+        })
 
     # --- Alcool (cumul 7j vs OMS ≤98 g/sem) ---
     # Source: daily_features.alcohol_g (sanitized via LLM). Only counts logged
@@ -1396,6 +1435,21 @@ def build_bio_age(measurements: list[dict], activity: list[dict] | None = None, 
         if pa is not None:
             blood_age = int(round(pa))
 
+    # Vascular: arterial age from Withings PWV (type 155 vascular_age). This is
+    # Withings' OWN calibrated product (PWV cohort-referenced), the only
+    # validated cardiac-age number we have. Surfaced RAW as its own sub-age and
+    # deliberately NOT folded into the composite average: cardio_age already
+    # carries an SBP/HR-derived CV component, and blending two CV-ish ages with
+    # ad-hoc weights would be the false-precision trap we rejected (the dropped
+    # #6 composite). Shown standalone, judged on its own.
+    vasc_row = next((m for m in measurements if m["type_code"] == 155), None)
+    vascular_age: int | None = None
+    if vasc_row:
+        try:
+            vascular_age = int(round(float(vasc_row["value"])))
+        except (TypeError, ValueError):
+            vascular_age = None
+
     measured = [cardio_age, composition_age, skeleton_age]
     if blood_age is not None:
         measured.append(blood_age)
@@ -1407,6 +1461,7 @@ def build_bio_age(measurements: list[dict], activity: list[dict] | None = None, 
         "delta_vs_chrono": composite - chrono,
         "subages": [
             {"key": "cardio", "label": "Cardio", "value": cardio_age},
+            {"key": "vascular", "label": "Artères", "value": vascular_age if vascular_age is not None else chrono, "off": vascular_age is None or vascular_age > chrono + 1},
             {"key": "blood", "label": "Sang", "value": blood_age if blood_age is not None else chrono, "off": blood_age is None},
             {"key": "composition", "label": "Composition", "value": composition_age, "off": composition_age > chrono + 1},
             {"key": "skeleton", "label": "Squelette", "value": skeleton_age, "off": skeleton_age > chrono + 5},
@@ -1604,6 +1659,45 @@ def _avg_hrv_from_hc(hc_records: list[dict], today: date) -> tuple[float, list[f
         return None
     vals = [float(r["value_num"]) for r in recent]
     return sum(vals) / len(vals), vals[-14:]
+
+
+def _morning_resting_hr_by_day(hc_records: list[dict], today: date, days: int) -> dict[date, float]:
+    """Morning resting HR per day = mean of the lowest quintile of raw
+    `heart_rate` samples in the 02:00-06:00 Paris window. Proxy for deep-sleep
+    autonomic HR, the input to the recovery z-score.
+
+    Uses dense `heart_rate` (n>14k) rather than the sparse `resting_heart_rate`
+    record type (n<20). A day needs >=5 in-window samples to count.
+    """
+    try:
+        from zoneinfo import ZoneInfo
+        paris = ZoneInfo("Europe/Paris")
+    except ImportError:  # pragma: no cover
+        paris = timezone(timedelta(hours=2))  # CEST fallback
+    cutoff = today - timedelta(days=days)
+    by_day: dict[date, list[float]] = {}
+    for r in hc_records:
+        if r.get("record_type") != "heart_rate" or r.get("value_num") is None:
+            continue
+        ts_raw = r.get("start_ts")
+        if not ts_raw:
+            continue
+        try:
+            ts = datetime.fromisoformat(ts_raw.replace("Z", "+00:00")).astimezone(paris)
+            v = float(r["value_num"])
+        except (TypeError, ValueError):
+            continue
+        if ts.date() < cutoff or not (2 <= ts.hour < 6):
+            continue
+        by_day.setdefault(ts.date(), []).append(v)
+    out: dict[date, float] = {}
+    for d, vals in by_day.items():
+        if len(vals) < 5:
+            continue
+        vals_sorted = sorted(vals)
+        n_low = max(3, len(vals_sorted) // 5)  # lowest quintile (deepest sleep)
+        out[d] = sum(vals_sorted[:n_low]) / n_low
+    return out
 
 
 def _sleep_minutes_per_day(hc_records: list[dict], today: date, days: int) -> list[tuple[date, float]]:

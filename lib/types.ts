@@ -60,7 +60,7 @@ export type SignalSpark =
   | { kind: "bars"; values: number[]; dim_indices?: number[]; color: "sage" | "ambre" | "rouge" };
 
 export interface SubAge {
-  key: "cardio" | "blood" | "composition" | "skeleton";
+  key: "cardio" | "vascular" | "blood" | "composition" | "skeleton";
   label: string;
   value: number;
   off?: boolean;

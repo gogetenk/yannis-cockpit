@@ -50,7 +50,7 @@ export function BioAgeTile({ bioAge }: Props) {
         <span className="vs-inline">{bioAge.delta_vs_chrono > 0 ? "+" : ""}{bioAge.delta_vs_chrono} vs chrono</span>
       </div>
 
-      <div className="subages" aria-label="4 sous-âges biologiques">
+      <div className="subages" aria-label="5 sous-âges biologiques">
         {bioAge.subages.map(sub => {
           const chronoTop = 100 - subageHeightPct(bioAge.chrono);
           return (

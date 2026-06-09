@@ -800,8 +800,8 @@
     /* Sub-ages — 4 bars, height ∝ age, label below, weight micro-label */
     .subages {
       display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
-      gap: 12px;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 10px;
       margin-top: 14px;
       width: 100%;
       max-width: 100%;
