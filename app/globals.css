@@ -1391,6 +1391,54 @@ header.detail-header .detail-back:focus-visible {
 }
 
 /* Method card — paragraphs, references. */
+.ecg-card {
+  background: var(--warm-cream-rest);
+  border-radius: var(--rounded-tile);
+  padding: 16px 18px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.ecg-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.ecg-meta { font-size: 12px; color: var(--sage-ash); font-variant-numeric: tabular-nums; }
+.ecg-rhythm { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.ecg-verdict {
+  font-family: var(--font-display);
+  font-size: 24px;
+  font-weight: 400;
+  letter-spacing: -0.01em;
+  color: var(--deep-sage);
+}
+.ecg-verdict.warn { color: var(--ambre-brule); }
+.ecg-afib { font-size: 13px; color: var(--sage-ash); }
+.ecg-stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0;
+}
+.ecg-stat { display: flex; flex-direction: column; gap: 2px; }
+.ecg-stat dt {
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--sage-ash);
+}
+.ecg-stat dd {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 17px;
+  font-weight: 400;
+  color: var(--sage-ink);
+  font-variant-numeric: tabular-nums;
+}
+.ecg-caveat {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--sage-ash);
+}
+
 .method {
   background: var(--warm-cream-rest);
   border-radius: var(--rounded-tile);

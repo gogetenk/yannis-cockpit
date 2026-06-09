@@ -2024,6 +2024,56 @@ def build_pillar_detail_composition(measurements: list[dict], today: date) -> di
     }
 
 
+def build_ecg_block(today: date) -> dict | None:
+    """Latest Withings ECG as a compact, honest baseline block for the cardio
+    detail page. Surfaces rhythm + spot HRV. Deliberately framed as a standing
+    ~30s spot reading, NOT overnight recovery HRV (see ingest_ecg.py)."""
+    try:
+        rows = sb_get("withings_ecg", {
+            "select": "ts,afib_result,mean_hr,rmssd_ms,sdnn_ms,qtc_ms,quality",
+            "order": "ts.desc",
+            "limit": "200",
+        })
+    except Exception:
+        return None
+    if not rows:
+        return None
+    latest = rows[0]
+    afib = latest.get("afib_result")
+    if afib == 0:
+        rhythm, afib_label, afib_ok = "Sinusal", "pas de FA détectée", True
+    elif afib == 1:
+        rhythm, afib_label, afib_ok = "Fibrillation", "FA détectée", False
+    else:
+        rhythm, afib_label, afib_ok = "Non concluant", "résultat non concluant", False
+    try:
+        d = datetime.fromisoformat(latest["ts"].replace("Z", "+00:00")).date()
+        date_label = fmt_date_fr(d)
+    except (TypeError, ValueError):
+        date_label = "—"
+    qtc = latest.get("qtc_ms")
+
+    def _num(v, ndigits=1):
+        try:
+            return round(float(v), ndigits)
+        except (TypeError, ValueError):
+            return None
+
+    return {
+        "date_label": date_label,
+        "rhythm": rhythm,
+        "afib_label": afib_label,
+        "afib_ok": afib_ok,
+        "mean_hr": int(round(float(latest["mean_hr"]))) if latest.get("mean_hr") is not None else None,
+        "posture_note": "lecture spot ~30 s, debout — pas une HRV de récup nocturne",
+        "rmssd_ms": _num(latest.get("rmssd_ms")),
+        "sdnn_ms": _num(latest.get("sdnn_ms")),
+        "qtc_ms": _num(qtc, 0),
+        "qtc_label": "QTc (Bazett)" if qtc is not None else "QTc indispo (intervalles non transmis)",
+        "n_recordings": len(rows),
+    }
+
+
 def build_pillar_detail_cardio(activity: list[dict], today: date, huawei_daily: list[dict] | None = None) -> dict | None:
     """HR repos. Source priority: huawei_daily.rest_hr_avg (5 y history) >
     Withings activity.raw.hr_min (Huawei via HC, ~30 j window)."""
@@ -2067,6 +2117,7 @@ def build_pillar_detail_cardio(activity: list[dict], today: date, huawei_daily: 
         "key": "cardio",
         "title": "Cardio · HR repos",
         "meta": "Huawei Watch GT2 (HR min nocturne) via Health Connect → Withings",
+        "ecg": build_ecg_block(today),
         "hero": {
             "figure": str(avg7),
             "unit": "bpm (moy. 7 j)",

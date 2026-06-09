@@ -5,6 +5,7 @@ import { DetailHero } from "@/components/cockpit/detail/DetailHero";
 import { DetailTrajectory } from "@/components/cockpit/detail/DetailTrajectory";
 import { MeasurementsTable } from "@/components/cockpit/detail/MeasurementsTable";
 import { MethodCard } from "@/components/cockpit/detail/MethodCard";
+import { EcgCard } from "@/components/cockpit/detail/EcgCard";
 import { SubTrajectories } from "@/components/cockpit/detail/SubTrajectories";
 import { BiologySections } from "@/components/cockpit/detail/BiologySections";
 import type { DetailKey } from "@/lib/types";
@@ -31,6 +32,7 @@ export default async function DetailPage({ params }: { params: Promise<{ key: st
       <DetailHeader title={detail.title} meta={detail.meta} />
       <div className="detail-body">
         <DetailHero hero={detail.hero} />
+        {detail.ecg && <EcgCard ecg={detail.ecg} />}
         <DetailTrajectory trajectory={detail.trajectory} />
         {detail.subs && detail.subs.length > 0 && <SubTrajectories subs={detail.subs} />}
         {detail.sections && detail.sections.length > 0 && <BiologySections sections={detail.sections} />}

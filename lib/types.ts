@@ -187,6 +187,21 @@ export interface PillarDetail {
   subs?: SubTrajectory[];    // optional 1–3 sub-line charts (e.g. Cardio)
   method: MethodSection[];
   cross_link?: { label: string; href: string };
+  ecg?: EcgCard | null;      // optional ECG baseline block (cardio detail)
+}
+
+export interface EcgCard {
+  date_label: string;
+  rhythm: string;            // "Sinusal" / "Fibrillation" / "Non concluant"
+  afib_label: string;        // "pas de FA détectée"
+  afib_ok: boolean;
+  mean_hr: number | null;
+  posture_note: string;      // spot-reading caveat
+  rmssd_ms: number | null;
+  sdnn_ms: number | null;
+  qtc_ms: number | null;
+  qtc_label: string;
+  n_recordings: number;
 }
 
 export interface CockpitSnapshot {
