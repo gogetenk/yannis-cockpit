@@ -178,6 +178,18 @@ def upsert(rows: list[dict], table: str, on_conflict: str) -> None:
     print(f"  {table}: {len(rows)} rows upserted", file=sys.stderr)
 
 
+def sb_select(table: str, params: dict) -> list[dict]:
+    """GET rows from Supabase PostgREST. Returns [] on error (best-effort)."""
+    url = f"{env('SUPABASE_URL')}/rest/v1/{table}"
+    key = env("SUPABASE_SERVICE_ROLE_KEY")
+    headers = {"apikey": key, "Authorization": f"Bearer {key}"}
+    r = requests.get(url, headers=headers, params=params, timeout=30)
+    if not r.ok:
+        print(f"  sb_select {table} failed {r.status_code}: {r.text[:200]}", file=sys.stderr)
+        return []
+    return r.json()
+
+
 def _sum_meal_nutrients(meals: dict, key: str) -> float | None:
     """Aggregate one nutrient (energy/protein/carb/fat) across the 4 meals."""
     api_key = NUTRIENT_KEY[key]
@@ -442,11 +454,28 @@ def replace_food_items_for_dates(rows: list[dict]) -> None:
     )
 
 
+# Yazio bodyvalue type → body_measurement column. body_fat is intentionally
+# excluded (composition comes from Withings BIA). `thigh` is included
+# optimistically; Yazio 404s it on accounts that don't track it, handled below.
+BODY_TYPE_TO_COL = {
+    "waist": "waist_cm",
+    "hip": "hip_cm",
+    "chest": "chest_cm",
+    "thigh": "thigh_cm",
+}
+
+
 def fetch_body_measurements(token_path: Path, days_window: int) -> list[dict]:
-    """Pull waist / hip / chest / body_fat from Yazio's /user/bodyvalues/{type}
-    endpoint for each day in the window. Returns body_measurement rows ready
-    to upsert. Yazio exposes these via the same package's YazioClient — no
-    CLI subcommand needed, just direct API calls."""
+    """Pull circumferences from Yazio's `/user/bodyvalues/{type}/last` endpoint
+    and return body_measurement rows ready to upsert.
+
+    `/last` returns the last value on-or-before the queried date, so a naive
+    read restamps the same figure onto every day. The previous version tried to
+    gate on a `date` field in the response, but that field is absent/renamed
+    across API versions, so it silently captured NOTHING. We instead use the
+    record's own date when the response carries one, otherwise accept the value
+    only when it differs from what we last stored — a change is, by definition,
+    a fresh log — and stamp it today."""
     try:
         from yazio_exporter.client import YazioClient
     except ImportError:
@@ -455,39 +484,57 @@ def fetch_body_measurements(token_path: Path, days_window: int) -> list[dict]:
     token = token_path.read_text().strip()
     client = YazioClient()
     client.set_token(token)
-    types = ("waist", "hip", "chest", "body_fat")
+
+    # Most-recent stored value per column, to tell a fresh log from a stale
+    # `/last` echo when the response carries no usable date.
+    cols = list(BODY_TYPE_TO_COL.values())
+    prev: dict[str, float] = {}
+    for r in sb_select("body_measurement", {
+        "select": "date," + ",".join(cols), "order": "date.desc", "limit": "60",
+    }):
+        for c in cols:
+            if c not in prev and r.get(c) is not None:
+                try:
+                    prev[c] = float(r[c])
+                except (TypeError, ValueError):
+                    pass
+
+    today = date.today()
+    today_iso = today.isoformat()
+    window_start = (today - timedelta(days=days_window)).isoformat()
     rows_by_date: dict[str, dict] = {}
-    start = date.today() - timedelta(days=days_window)
-    end = date.today()
-    d = start
-    while d <= end:
-        d_iso = d.isoformat()
-        for tname in types:
-            try:
-                r = client.get(f"/user/bodyvalues/{tname}/last?date={d_iso}")
-                data = r.json()
-            except Exception:
-                continue
-            if not isinstance(data, dict): continue
-            v = data.get("value")
-            if v is None: continue
-            # Yazio returns the LAST known value, so we keep it only if the
-            # returned record's date matches this iteration's date (otherwise
-            # we'd duplicate the same measurement across every empty day).
-            entry_date = (data.get("date") or "")[:10]
-            if entry_date != d_iso: continue
-            try:
-                v = float(v)
-            except (TypeError, ValueError):
-                continue
-            col = "body_fat_pct" if tname == "body_fat" else f"{tname}_cm"
-            # body_fat_pct is not in the schema (BIA already covers it via Withings);
-            # skip silently to keep the schema clean.
-            if col == "body_fat_pct":
-                continue
-            row = rows_by_date.setdefault(d_iso, {"date": d_iso, "notes": "yazio sync"})
-            row[col] = v
-        d += timedelta(days=1)
+    for tname, col in BODY_TYPE_TO_COL.items():
+        try:
+            data = client.get(f"/user/bodyvalues/{tname}/last?date={today_iso}").json()
+        except Exception:
+            continue  # 404 (type not tracked, e.g. thigh) or transient error
+        if not isinstance(data, dict):
+            continue
+        v = data.get("value")
+        if v is None:
+            continue
+        try:
+            v = round(float(v), 1)
+        except (TypeError, ValueError):
+            continue
+        # Prefer the record's own date if any known field carries it.
+        rec_date = None
+        for k in ("date", "datetime", "recorded_at", "created_at", "updated_at"):
+            raw = data.get(k)
+            if raw:
+                rec_date = str(raw)[:10]
+                break
+        if rec_date is not None:
+            if not (window_start <= rec_date <= today_iso):
+                continue  # stale echo outside the refresh window
+            stamp = rec_date
+        else:
+            last = prev.get(col)
+            if last is not None and abs(last - v) <= 0.05:
+                continue  # unchanged → not a new log
+            stamp = today_iso
+        rows_by_date.setdefault(stamp, {"date": stamp, "notes": "yazio auto-sync"})[col] = v
+
     rows = list(rows_by_date.values())
     print(f"  body_measurement (yazio): {len(rows)} date(s) with new measurements", file=sys.stderr)
     return rows
