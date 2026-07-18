@@ -11,10 +11,19 @@ Currently handles:
   - HR monthly CSVs (Date,Heure,bpm,Origine)
   - Sleep daily/weekly CSVs (Date,Heure,Durée_sec,Phase) → sessions reconstructed
     by gluing consecutive stage rows separated by ≤ 30 min
+  - Activity/workout CSVs (Application source,Type d'activité,Nom,Date,Heure,
+    Temps écoulé,Temps actif,Distance km) → one `exercise_session` per workout
+    (feeds active_min in build_daily_features) plus a `distance` record (metres)
+    when distance > 0.
+
+    IMPORTANT — these workout CSVs carry NO step count and NO calories. Health
+    Sync's Drive export has no daily-steps stream at all, so all-day step totals
+    CANNOT be recovered from it — only the live Android APK / Health Connect
+    path holds them. This parser recovers workout sessions + distance only.
 
 Skipped (out of scope for the current gap-fill, can be added later):
   - .fit / .tcx / .gpx workout files (binary, requires fitparse/python-tcxparser)
-  - Activity CSVs (WALKING/RUNNING) — same workouts as above in flat form
+    — the flat Activités *.csv already gives us duration + distance per workout.
 
 Idempotency: record_uid is deterministic = sha1(record_type + start_ts).
 Re-runs upsert in place, no duplicates.
@@ -136,6 +145,76 @@ def parse_sleep_csv(path: Path, since: date, until: date) -> list[dict]:
     return out
 
 
+def parse_activity_csv(path: Path, since: date, until: date) -> list[dict]:
+    """Health Sync per-workout activity CSV → hc_raw_record records.
+
+    One row per workout. Columns (fixed Health Sync schema):
+      0 Application source | 1 Type d'activité | 2 Nom | 3 Date (Y.m.d H:M:S)
+      4 Heure | 5 Temps écoulé (s) | 6 Temps actif (s) | 7 Distance (km)
+
+    Emits, per workout in [since, until]:
+      - `exercise_session` (start_ts, end_ts = start + elapsed) — end-start is
+        what build_daily_features turns into active_min, so we use wall-clock
+        elapsed to match real Health Connect session semantics.
+      - `distance` (metres) only when Distance > 0.
+
+    No steps / no calories exist in these files (see module docstring)."""
+    out: list[dict] = []
+    with path.open(encoding="utf-8") as f:
+        reader = csv.reader(f)
+        next(reader, None)  # header
+        for row in reader:
+            if len(row) < 8:
+                continue
+            try:
+                start = datetime.strptime(row[3].strip(), "%Y.%m.%d %H:%M:%S")
+                elapsed_s = int(float(row[5])) if row[5].strip() else 0
+                active_s = int(float(row[6])) if row[6].strip() else 0
+                dist_km = float(row[7]) if row[7].strip() else 0.0
+            except (ValueError, IndexError):
+                continue
+            if not (since <= start.date() <= until):
+                continue
+            if elapsed_s <= 0:
+                elapsed_s = active_s
+            if elapsed_s <= 0 or elapsed_s > 24 * 3600:
+                continue
+            act_type = (row[1] or "").strip() or "UNKNOWN"
+            start_iso = to_utc_iso(start)
+            end_iso = to_utc_iso(start + timedelta(seconds=elapsed_s))
+            digest = hashlib.sha1(start_iso.encode()).hexdigest()[:16]
+            payload = {
+                "activity_type": act_type,
+                "elapsed_s": elapsed_s,
+                "active_s": active_s,
+                "distance_km": dist_km,
+            }
+            out.append({
+                "record_type": "exercise_session",
+                "record_uid": "healthsync-exercise:" + digest,
+                "start_ts": start_iso,
+                "end_ts": end_iso,
+                "value_num": round(elapsed_s / 60.0, 1),
+                "unit": "min",
+                "source_app": "healthsync.drive.csv",
+                "source_device": "Huawei (via Health Sync)",
+                "payload": payload,
+            })
+            if dist_km > 0:
+                out.append({
+                    "record_type": "distance",
+                    "record_uid": "healthsync-distance:" + digest,
+                    "start_ts": start_iso,
+                    "end_ts": end_iso,
+                    "value_num": round(dist_km * 1000.0, 1),
+                    "unit": "m",
+                    "source_app": "healthsync.drive.csv",
+                    "source_device": "Huawei (via Health Sync)",
+                    "payload": {"activity_type": act_type},
+                })
+    return out
+
+
 def sb_upsert(rows: list[dict], batch: int = 500) -> int:
     if not rows: return 0
     base = env("SUPABASE_URL") + "/rest/v1/hc_raw_record?on_conflict=record_type,record_uid"
@@ -192,10 +271,14 @@ def main():
     # Folders contain a single inner subfolder
     hr_inner = next((p for p in hr_dir.iterdir() if p.is_dir()), hr_dir)
     sleep_inner = next((p for p in sleep_dir.iterdir() if p.is_dir()), sleep_dir)
+    # Activity folder is optional (workouts → exercise_session + distance).
+    act_dir = next((p for p in root.glob("*Activit*") if p.is_dir()), None)
+    act_inner = next((p for p in act_dir.iterdir() if p.is_dir()), act_dir) if act_dir else None
 
     print(f"window: {since} → {until}", file=sys.stderr)
     print(f"HR folder:    {hr_inner}", file=sys.stderr)
     print(f"Sleep folder: {sleep_inner}", file=sys.stderr)
+    print(f"Activity folder: {act_inner}", file=sys.stderr)
 
     hr_rows: list[dict] = []
     for csv_path in sorted(hr_inner.glob("*.csv")):
@@ -230,21 +313,39 @@ def main():
         seen_uids.add(r["record_uid"]); unique_sleep.append(r)
     print(f"Sleep total unique: {len(unique_sleep)}", file=sys.stderr)
 
+    act_rows: list[dict] = []
+    if act_inner:
+        for csv_path in sorted(act_inner.glob("*.csv")):
+            rows = parse_activity_csv(csv_path, since, until)
+            if rows:
+                print(f"  Activity {csv_path.name}: {len(rows)} record(s) in window", file=sys.stderr)
+            act_rows.extend(rows)
+    # Dedup by (record_type, record_uid): a workout emits an exercise_session
+    # AND a distance sharing the same digest but distinct types.
+    seen_keys: set[tuple] = set()
+    unique_act: list[dict] = []
+    for r in act_rows:
+        k = (r["record_type"], r["record_uid"])
+        if k in seen_keys: continue
+        seen_keys.add(k); unique_act.append(r)
+    print(f"Activity total unique: {len(unique_act)}", file=sys.stderr)
+
     if args.dry_run:
         print("DRY RUN — sample HR:", json.dumps(unique_hr[:2], indent=2, ensure_ascii=False))
         print("DRY RUN — sample Sleep:", json.dumps(unique_sleep[:2], indent=2, ensure_ascii=False))
+        print("DRY RUN — sample Activity:", json.dumps(unique_act[:3], indent=2, ensure_ascii=False))
         return
 
     if args.json_out:
         out_path = Path(args.json_out)
         out_path.write_text(
-            json.dumps(unique_hr + unique_sleep, ensure_ascii=False, default=str),
+            json.dumps(unique_hr + unique_sleep + unique_act, ensure_ascii=False, default=str),
             encoding="utf-8",
         )
-        print(f"wrote {len(unique_hr) + len(unique_sleep)} records to {out_path}", file=sys.stderr)
+        print(f"wrote {len(unique_hr) + len(unique_sleep) + len(unique_act)} records to {out_path}", file=sys.stderr)
         return
 
-    total = sb_upsert(unique_hr) + sb_upsert(unique_sleep)
+    total = sb_upsert(unique_hr) + sb_upsert(unique_sleep) + sb_upsert(unique_act)
     print(f"done. {total} record(s) upserted into hc_raw_record", file=sys.stderr)
 
 
