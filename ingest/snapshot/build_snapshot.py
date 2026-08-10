@@ -1972,6 +1972,43 @@ def _segment_subs(measurements: list[dict], type_code: int, unit: str, key_prefi
     return out
 
 
+def _visceral_sub(measurements: list[dict], today: date) -> list[dict]:
+    """Withings visceral-fat index (type 170) as a trend sub-trajectory.
+
+    The /20 index is a proprietary BIA figure and is NOT reliable against DEXA
+    VAT (608 g on 2026-04-21) — Withings BIA underestimates visceral here. We
+    surface it purely for its TREND over time (see the composition method note),
+    never as an absolute. Emitted at whole-body position 7 by the Body Scan.
+    """
+    rows = sorted(
+        [m for m in measurements if m["type_code"] == 170 and (m.get("position") in (None, 0, 7))],
+        key=lambda m: m["ts"],
+    )
+    if not rows:
+        return []
+    sampled = _sample_monthly(rows, today, 12)
+    if len(sampled) < 2:
+        sampled = rows[-12:]
+    latest_v = float(sampled[-1]["value"])
+    first_v = float(sampled[0]["value"])
+    delta = latest_v - first_v
+    pct = (delta / first_v * 100) if first_v else 0.0
+    sign = "+" if delta >= 0 else "−"
+    pts = [
+        {"date": fmt_date_fr(date.fromisoformat(m["ts"][:10])), "value": round(float(m["value"]), 1)}
+        for m in sampled
+    ]
+    return [{
+        "key": "visceral",
+        "label": "Graisse viscérale — indice",
+        "unit": "/20",
+        "current": fmt_num(latest_v, 1),
+        "trend_label": f"{sign}{fmt_num(abs(delta), 1)} ({sign}{abs(round(pct))} %) sur {len(sampled)} mois",
+        "points": pts,
+        "ambre": latest_v > 5,
+    }]
+
+
 def build_pillar_detail_composition(measurements: list[dict], today: date) -> dict | None:
     fat = sorted(
         [m for m in measurements if m["type_code"] == 6 and (m.get("position") in (None, 0, 7))],
@@ -2015,10 +2052,11 @@ def build_pillar_detail_composition(measurements: list[dict], today: date) -> di
             "target": {"value": 18, "label": "cible 18 %"},
         },
         "table": rows,
-        "subs": _segment_subs(measurements, 175, "kg", "muscle") + _segment_subs(measurements, 174, "kg", "fat"),
+        "subs": _visceral_sub(measurements, today) + _segment_subs(measurements, 175, "kg", "muscle") + _segment_subs(measurements, 174, "kg", "fat"),
         "method": [
             {"heading": "Source", "body": f"Withings Body Scan (BIA segmentale 8 électrodes, 50 kHz). Mesures Withings calibrées par offset +{BIA_FAT_OFFSET_PP} pp dérivé du DEXA total body HBG MC du {BIA_REFERENCE_DATE} (BIA Withings sous-estime systématiquement la MG chez les sujets minces, artefact classique)."},
             {"heading": "DEXA référence", "body": f"DEXA TBC ({BIA_REFERENCE_DATE}) : MG totale {DEXA_TBC['fat_pct']} %, masse maigre {DEXA_TBC['lean_mass_kg']} kg, ASM {DEXA_TBC['asm_kg']} kg (SMI 9,4 — normal), VAT {DEXA_TBC['vat_mass_g']} g, ratio VAT/SAT {DEXA_TBC['vat_sat_ratio']}."},
+            {"heading": "Graisse viscérale", "body": f"Indice Withings /20 (type 170, Body Scan). Valeur absolue non fiable — au DEXA du {BIA_REFERENCE_DATE}, VAT réelle {DEXA_TBC['vat_mass_g']} g (ratio VAT/SAT {DEXA_TBC['vat_sat_ratio']}), la BIA sous-estime. Suivi uniquement pour sa TENDANCE dans le temps. Plafond sain Withings ≈ 5/20."},
             {"heading": "Cible", "body": "18 % long terme (catégorie 'athletic' ACSM cohorte 30-39 ans, post-correction DEXA). Bande conforme jusqu'à 20 %."},
         ],
     }

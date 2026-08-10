@@ -408,17 +408,21 @@ def _pick(micros: dict[str, float], ids: set[str]) -> float | None:
 
 
 def load_withings_measurements() -> dict[date, dict[str, list[float]]]:
-    """type_code: 1=weight, 6=fat_pct, 8=fat_mass, 9=DBP, 10=SBP, 11=HR, 76=muscle."""
+    """type_code: 1=weight, 6=fat_pct, 8=fat_mass, 9=DBP, 10=SBP, 11=HR,
+    76=muscle, 170=visceral fat index."""
     rows = sb_get(
         "withings_measurement",
-        {"select": "ts,type_code,value,position", "type_code": "in.(1,6,9,10,11,76)"},
+        {"select": "ts,type_code,value,position", "type_code": "in.(1,6,9,10,11,76,170)"},
     )
     out: dict[date, dict[str, list[float]]] = defaultdict(lambda: defaultdict(list))
     for r in rows:
-        # ignore segmental rows. Withings convention: position 0 (or NULL)
-        # = whole-body / cuff reading; positions >= 2 are per-limb BIA.
+        # Keep whole-body readings only. Withings convention: position 0 or NULL
+        # = whole-body / cuff; position 7 = whole-body on the Body Scan (which
+        # emits muscle + visceral at position 7 since 2026-04 — the old device
+        # used position 0, so without 7 muscle_kg silently went null). Positions
+        # 2/3/10/11/12 are per-limb BIA segments — skip those.
         pos = r.get("position")
-        if pos is not None and pos != 0:
+        if pos is not None and pos not in (0, 7):
             continue
         ts = r["ts"]
         d = date.fromisoformat(ts[:10])
@@ -427,7 +431,8 @@ def load_withings_measurements() -> dict[date, dict[str, list[float]]]:
         except (TypeError, ValueError):
             continue
         tc = r["type_code"]
-        key = {1: "weight", 6: "body_fat", 9: "dbp", 10: "sbp", 11: "hr", 76: "muscle"}.get(tc)
+        key = {1: "weight", 6: "body_fat", 9: "dbp", 10: "sbp", 11: "hr",
+               76: "muscle", 170: "visceral"}.get(tc)
         if key:
             out[d][key].append(v)
     return out
@@ -730,10 +735,12 @@ def build_row_raw(
     w_weight = _mean(wm.get("weight", [])) if wm else None
     w_bfp = _mean(wm.get("body_fat", [])) if wm else None
     w_muscle = _mean(wm.get("muscle", [])) if wm else None
+    w_visceral = _mean(wm.get("visceral", [])) if wm else None
 
     weight_kg = w_weight if w_weight is not None else (_to_num(yz.get("weight_kg")) if yz else None)
     body_fat_pct = w_bfp if w_bfp is not None else (_to_num(yz.get("body_fat_pct")) if yz else None)
     muscle_kg = w_muscle
+    visceral_fat_score = w_visceral
 
     # activity: Withings activity table priority, Yazio steps fallback
     steps = None
@@ -805,6 +812,7 @@ def build_row_raw(
         "weight_kg": weight_kg,
         "body_fat_pct": body_fat_pct,
         "muscle_kg": muscle_kg,
+        "visceral_fat_score": visceral_fat_score,
         "steps": steps,
         "active_kcal": active_kcal,
         "total_kcal": total_kcal,
